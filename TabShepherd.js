@@ -40,14 +40,6 @@ var fchrome = {
 
 (function (host) {
 
-  var error = function(obj){
-    alert(obj[0].description);
-  };
-
-  var show = function (func, text) {
-    func([ {content: " ", description: text} ]);
-  };
-
   function Windows(windowData) {
     this.windowData = windowData;
   }
@@ -93,7 +85,7 @@ var fchrome = {
   Windows.prototype.withWindowNamed = function (name, callback) {
     var win = this.getByName(name);
     if (!win)
-      show(error, "No window named " + name);
+      alert("No window named " + name);
 
     host.windows.get(win.id, {}, function (w) {
       w.name = name;
@@ -107,6 +99,36 @@ var fchrome = {
       win.name = windows.getName(win);
       callback(win);
     });
+  };
+
+  Windows.prototype.getWindowForRegex = function (regex) {
+
+  };
+
+  Windows.prototype.assignRegex = function (regex, window) {
+
+  };
+
+  Windows.prototype.unassignRegex = function (regex, window) {
+
+  };
+
+  Windows.prototype.containsRegex = function (regex) {
+    if (!this.windowData[window.name])
+      alert("Unknown window " + window.name);
+
+    var regexes = this.windowData[window.name].regexes;
+    if (!regexes) return false;
+
+    for (var i = 0; i < regexes.length; i++){
+      if (regexes[i] == regex) return true;
+    }
+
+    return false;
+  };
+
+  Windows.prototype.listRegexes = function (window) {
+
   };
 
   Windows.prototype.withTabsMatching = function (text, callback) {
@@ -143,191 +165,304 @@ var fchrome = {
     });
   };
 
+  /*
+        var findWin = function (defName) {
+        for (var j = 0; j < chromeWindows.length; j++) {
+          var win = chromeWindows[j];
+          if (win.name == defName) return win;
+        }
+        return undefined;
+      };
+   */
+  Windows.prototype.forEachWindow = function(condition, action, finish){
+    host.windows.getAll({}, function (wins) {
+      var msg = '';
+      for (var i = 0; i < wins.length; i++){
+        var win = wins[i];
+        var name = win.name;
+        if (!win.name) continue;
+        var data = this.windowData[name];
+        var res = condition(win, name, data) ?
+                  action(win, name, data) :
+                  '';
+        msg = (msg ? ', ' : '') + res;
+      }
+
+      finish(msg);
+    });
+  };
+
+  Windows.prototype.forEachDefinition = function(condition, action, finish){
+    host.windows.getAll({}, function (wins) {
+      var findWin = function (defName) {
+        for (var i = 0; i < wins.length; i++) {
+          var win = wins[i];
+          if (win.name == defName) return win;
+        }
+        return undefined;
+      };
+
+      var msg = '';
+      var names = Object.keys(this.windowData);
+      for (var i = 0; i < names.length; i++){
+        var name = names[i];
+        var def = this.windowData[name];
+        var win = findWin(name);
+        if (condition(win, name, def)) {
+          var res = action(win, name, def);
+          msg = (msg ? ', ' : '') + res;
+        }
+      }
+
+      finish(msg);
+    });
+  };
+
   var commands = {
     name: {
       desc: "Change the name of the current window",
-      help: function (newName, windows, suggest) {
+      help: function (newName, windows, finish) {
         windows.withCurrentWindow(function (win) {
           if (win.name) {
             if (newName)
-              show(suggest, "Press enter to change name window name from '" + win.name + "' to '" + newName + "'.");
+              finish("Press enter to change name window name from '" + win.name + "' to '" + newName + "'.");
             else
-              show(suggest, "Enter a new name for this window (currently named '" + win.name + "').");
+              finish("Enter a new name for this window (currently named '" + win.name + "').");
           }
           else {
             if (newName)
-              show(suggest, "Press enter to name this window '" + newName + "'.");
+              finish("Press enter to name this window '" + newName + "'.");
             else
-              show(suggest, "Enter a name for this window.");
+              finish("Enter a name for this window.");
           }
         });
       },
-      run: function (name, windows, onFinish) {
+      run: function (name, windows, finish) {
+        if (!name)
+          return finish("No name provided.");
+
         windows.withCurrentWindow(function (win) {
           windows.setName(win, name);
-          onFinish();
+          finish();
         });
       }
     },
+    defs: {
+      desc: "List named window definitions",
+      help: function (arg, windows, finish) {
+        finish("Press enter to list the window definitions.");
+      },
+      run: function (arg, windows, finish) {
+        var msg = '';
+        for (var win in windows.windowData){
+          if (windows.windowData.hasOwnProperty(win))
+            msg += win + "\n";
+        }
+
+        finish("Named windows:\n\n" + msg);
+      }
+    },
     new: {
-      desc: "Create a new window and assign it a name",
-      help: function (newName, windows, suggest) {
-        windows.withCurrentWindow(function (win) {
-          if (newName)
-            show(suggest, "Press enter to open a new window and name it '" + win.name + "'.");
-          else
-            show(suggest, "Enter a name for the new window.");
+      desc: "Create a new empty window and assign it a name",
+      help: function (name, windows, finish) {
+        if (!name)
+          return finish("Enter a name for the new window.");
+
+        windows.withWindowNamed(name, function (win) {
+          if (win) finish("There is already a window named '" + name + "'.");
+          finish("Press enter to open a new window and name it '" + name + "'.");
         });
       },
-      run: function (name, windows, onFinish) {
-        windows.withCurrentWindow(function (win) {
-          onFinish();
+      run: function (name, windows, finish) {
+        if (!name)
+          return finish("No window name provided.");
+
+        windows.withWindowNamed(name, function (win) {
+          if (win)
+            return finish("There is already a window named '" + name + "'.");
+
+          windows.withNewWindow(name, function () {
+            finish();
+          });
         });
       }
     },
     clear: {
-      help: function (name, windows, suggest) {
-        show(suggest, "Clear all window data. Enter \"all data\" to confirm.");
-      },
-      run: function (arg) {
+      desc: "Clear window definitions.",
+      help: function (arg, windows, finish) {
         if (arg == 'all data')
-          host.storage.local.remove('windows', function () { show(error, "Cleared all window data.");});
-        else
-          show(error, "No data cleared. Type \"clear all data\" to clear.")
+          return finish("Press enter to clear all saved window definitions.");
+
+        windows.withWindowNamed(name, function (win) {
+          if (win)
+            finish("Press enter to clear window definition '" + name + "'. Warning: currently assigned to a window.");
+          else if (windows.windowData[name])
+            finish("Press enter to clear window definition '" + name + "', not currently assigned to a window.");
+          else
+            finish("Window definition '" + name + "' not found.");
+        })
+      },
+      run: function (arg, windows, finish) {
+        if (arg == 'all data') {
+          host.storage.local.remove('windows', function () {
+            finish("Cleared all window data.");
+          });
+          return;
+        }
+
+        windows.withWindowNamed(name, function (win) {
+          if (win) {
+            delete windows.windowData[name];
+            delete win.name;
+            finish("Cleared window definition '" + name + "' and removed it from a window.");
+          }
+          else if (windows.windowData[name]) {
+            delete windows.windowData[name];
+            finish("Cleared window definition '" + name + "'.");
+          }
+          else
+            finish("Window definition '" + name + "' not found.");
+        });
+      }
+    },
+    clean: {
+      desc: "Clean window data, removing definitions for which no window is present.",
+      help: function (arg, windows, finish) {
+        windows.forEachDefinition(
+          function (win) { return !win },                    // condition
+          function (win, name) { return "'" + name + "'" },  // action if true
+          function (msg) {                                   // finish
+            finish(msg ? "Press enter to clean unused window definitions: " + msg : "No window definitions need cleaning.");
+          });
+      },
+      run: function (arg, windows, finish) {
+        windows.forEachDefinition(
+          function (win) { return !win }, // condition
+          function (win, name) {          // action if true
+            delete windows.windowData[name];
+            return "'" + name + "'";
+          },
+          function (msg) {                // finish
+            finish(msg ? "Cleaned unused window definitions: " + msg : "No window definitions needed cleaning.");
+          });
       }
     },
     focus: {
       desc: "Switch to the window with the given name",
-      help: function (name, windows, suggest) {
-        if (windows.getByName(name)) {
-          show(suggest, "Press enter to focus window '" + name + "'.");
-        }
-        else {
-          show(suggest, "Type a defined window name.");
-        }
+      help: function (name, windows, finish) {
+        if (!windows.getByName(name))
+          return finish("Type a defined window name.");
+
+        finish("Press enter to focus window '" + name + "'.");
       },
-      run: function (name, windows, onFinish) {
+      run: function (name, windows, finish) {
+        if (!windows.getByName(name))
+          return finish("No such window '" + name + "'.");
+
         windows.withWindowNamed(name, function(win) {
           windows.focus(win);
-          onFinish();
+          finish();
         });
       }
     },
     bring: {
       desc: "Bring tabs matching the regex argument to the current window",
-      help: function (regex, windows, suggest) {
-        if (regex) {
-          windows.withTabsMatching(regex, function (matchingTabs) {
-            var num = matchingTabs.length;
-            if (num < 1) {
-              show(suggest, "No tabs found matching /" + regex + "/.")
-            }
-            else {
-              windows.withCurrentWindow(function (win) {
-                show(suggest, "Press enter: bring " + num +
-                  " tabs matching /" + regex + "/ to this window" +
-                  (win.name ? " '" + win.name + "'." : "."));
-              });
-            }
-          });
-        }
-        else {
-          show(suggest, "Enter a regex.");
-        }
-      },
-      run: function (regex, windows, onFinish) {
+      help: function (regex, windows, finish) {
+        if (!regex)
+          return finish("Enter a regex.");
+
         windows.withTabsMatching(regex, function (matchingTabs) {
-          if (matchingTabs.length < 1) {
-            show(error, "No tabs found matching /" + regex + "/.");
+          var num = matchingTabs.length;
+          if (num < 1) {
+            finish("No tabs found matching /" + regex + "/.");
           }
           else {
             windows.withCurrentWindow(function (win) {
-              host.tabs.move(matchingTabs, {windowId: win.id, index: -1}, function () {
-                onFinish();
-              });
+              finish("Press enter: bring " + num + " tabs matching /" + regex + "/ to this window" + (win.name ? " '" + win.name + "'." : "."));
             });
           }
+        });
+      },
+      run: function (regex, windows, finish) {
+        windows.withTabsMatching(regex, function (matchingTabs) {
+          if (!regex)
+            return finish("Enter a regex.");
+
+          if (matchingTabs.length < 1)
+            return finish("No tabs found matching /" + regex + "/.");
+
+          windows.withCurrentWindow(function (win) {
+            host.tabs.move(matchingTabs, {windowId: win.id, index: -1}, function () {
+              finish();
+            });
+          });
         });
       }
     },
     extract: {
       desc: "Extract tabs matching the regex argument into a new window named with that regex",
-      help: function (regex, windows, suggest) {
+      help: function (regex, windows, finish) {
         windows.withTabsMatching(regex, function(matchingTabs) {
           var num = matchingTabs.length;
-          if (!regex){
-            show(suggest, "Enter a regex.");
-          }
-          else if (num < 1) {
-            show(suggest, "No tabs found matching /" + regex + "/.")
-          }
-          else {
-            show(suggest, "Press enter to extract " + num + " tabs matching /" + regex + "/ into a new window.");
-          }
+          if (!regex) return finish("Enter a regex.");
+          if (num < 1) return finish("No tabs found matching /" + regex + "/.");
+          finish("Press enter to extract " + num + " tabs matching /" + regex + "/ into a new window.");
         });
       },
-      run: function (regex, windows, onFinish) {
+      run: function (regex, windows, finish) {
         windows.withTabsMatching(regex, function (matchingTabs) {
-          if (matchingTabs.length < 1) {
-            show(error, "No tabs found matching /" + regex + "/.");
-          }
-          else {
-            windows.withNewWindow(regex, function (win) {
-              host.tabs.move(matchingTabs, {windowId: win.id, index: -1}, function () {
-                host.tabs.remove(win.tabs[win.tabs.length - 1].id, function () {
-                  onFinish();
-                });
+          if (matchingTabs.length < 1)
+            return finish("No tabs found matching /" + regex + "/.");
+
+          windows.withNewWindow(regex, function (win) {
+            host.tabs.move(matchingTabs, {windowId: win.id, index: -1}, function () {
+              host.tabs.remove(win.tabs[win.tabs.length - 1].id, function () {
+                finish();
               });
             });
-          }
+          });
         });
       }
     },
     find: {
       desc: "Find and focus a single tab",
-      help: function (regex, windows, suggest) {
+      help: function (regex, windows, finish) {
         windows.withTabsMatching(regex, function (matchingTabs) {
-          if (matchingTabs.length > 1) {
-            show(suggest, "Too many tabs (" + matchingTabs.length + ") match /" + regex + "/ . Narrow the regex.");
-          }
-          else if (matchingTabs.length < 1) {
-            show(suggest, "No matching tabs found for /" + regex + "/.");
-          }
-          else {
-            show(suggest, "Press enter to focus the matching tab.");
-          }
+          if (matchingTabs.length > 1)
+            return finish("Narrow the regex; too many tabs match (" + matchingTabs.length + ").");
+
+          if (matchingTabs.length < 1)
+            return finish("No matching tabs found for /" + regex + "/.");
+
+          finish("Press enter to focus the matching tab.");
         });
       },
-      run: function (regex, windows) {
+      run: function (regex, windows, finish) {
         windows.withTabsMatching(regex, function (matchingTabs) {
-          if (matchingTabs.length > 1) {
-            show(error, "Narrow the regex; too many tabs match (" + matchingTabs.length + ").");
-          }
-          else if (matchingTabs.length < 1) {
-            show(error, "No matching tabs found for /" + regex + "/.");
-          }
-          else {
-            host.tabs.get(matchingTabs[0], function (tab) {
-              host.windows.update(tab.windowId, {focused: true}, function () {
-                host.tabs.update(tab.id, {highlighted: true}, function(){});
-              })
-            });
-          }
+          if (matchingTabs.length > 1)
+            return finish("Narrow the regex; too many tabs match (" + matchingTabs.length + ").");
+
+          if (matchingTabs.length < 1)
+            return finish("No matching tabs found for /" + regex + "/.");
+
+          host.tabs.get(matchingTabs[0], function (tab) {
+            host.windows.update(tab.windowId, {focused: true}, function () {
+              host.tabs.update(tab.id, {highlighted: true}, function(){});
+            })
+          });
         });
       }
     },
     send: {
       desc: "Send the current tab to the window named in the argument",
-      help: function (name, windows, suggest) {
-        if (name) {
-          var win = windows.getByName(name);
-          show(suggest, "Press enter to send this tab to " + (win ? "" : "new ") + "window '" + name + "'.");
-        }
-        else {
-          show(suggest, "Enter a window name to send this tab there.");
-        }
+      help: function (name, windows, finish) {
+        if (!name)
+          return finish("Enter a window name to send this tab there.");
+
+        var win = windows.getByName(name);
+        finish("Press enter to send this tab to " + (win ? "" : "new ") + "window '" + name + "'.");
       },
-      run: function (name, windows, onFinish) {
+      run: function (name, windows, finish) {
         windows.withActiveTab(function (tab) {
           var existingWin = windows.getByName(name);
           if (existingWin) {
@@ -337,7 +472,7 @@ var fchrome = {
             windows.withNewWindow(name, function (win) {
               host.tabs.move(tab.id, {windowId: win.id, index: -1}, function () {
                 host.tabs.remove(win.tabs[win.tabs.length - 1].id, function () {
-                  onFinish();
+                  finish();
                 });
               });
             });
@@ -345,88 +480,107 @@ var fchrome = {
         });
       }
     },
+    unnamed: {
+      desc: "Go to a window having no definition.",
+      help: function (arg, windows, finish) {
+        windows.withWindow(function(win){ return !win.name }, function(win) {
+          if (win)
+            finish("Press enter to go to an open window that has no definition.");
+          else
+            finish("All windows have a definition.");
+        });
+      },
+      run: function (arg, windows, finish) {
+        windows.withWindow(function(win){ return !win.name }, function(win) {
+          if (win) windows.focus(win);
+          finish();
+        });
+      }
+    },
     assign: {
       desc: "Assign a regex to the current window",
-      help: function (regex, windows, suggest) {
-        if (regex) {
-          show(suggest, "Press enter to assign /" + arg + "/ to this window.");
+      help: function (regex, windows, finish) {
+        if (!regex)
+          return finish("Enter a regex to assign to this window.");
+
+        var currWin = windows.getWindowForRegex(regex);
+        if (currWin) {
+          finish("Press enter to reassign /" + arg + "/ to this window from window '" + currWin.name + "'.");
         }
         else {
-          show(suggest, "Enter a regex to assign to this window.");
+          finish("Press enter to assign /" + arg + "/ to this window.");
         }
       },
-      run: function (regex, windows, onFinish) {
-        if (regex) {
-          windows.withCurrentWindow(function (window) {
-            windows.assignRegex(regex, window);
-            onFinish();
-          });
-        }
-        else {
-          show(error, "No regex provided.");
-        }
+      run: function (regex, windows, finish) {
+        if (!regex)
+          return finish("No regex provided.");
+
+        windows.withCurrentWindow(function (window) {
+          var msg;
+          var currWin = windows.getWindowForRegex(regex);
+          if (currWin) {
+            windows.unassignRegex(regex, currWin);
+            msg = "Regex /" + regex + "/ was moved from window '" + currWin.name + "' to window '" + window.name + "'.";
+          }
+
+          windows.assignRegex(regex, window);
+          finish(msg);
+        });
       }
     },
     unassign: {
       desc: "Remove a regex assignment from the current window",
-      help: function (regex, windows, suggest) {
-        if (regex) {
-          if (windows.containsRegex(regex, window)) {
-            show(suggest, "Press enter to remove /" + arg + "/ from this window.");
-          }
-          else {
-            show(suggest, "Regex /" + regex + "/ is not assigned to this window.");
-          }
-        }
-        else {
-          show(suggest, "Enter a regex to remove from this window.");
-        }
+      help: function (regex, windows, finish) {
+        if (!regex)
+          return finish("Enter a regex to remove from this window.");
+
+        if (!windows.containsRegex(regex, window))
+          return finish("Regex /" + regex + "/ is not assigned to this window.");
+
+        finish("Press enter to remove /" + arg + "/ from this window.");
       },
-      run: function (regex, windows, onFinish) {
-        if (regex) {
-          if (windows.containsRegex(regex, window)) {
-            windows.withCurrentWindow(function (window) {
-              windows.unassignRegex(regex, window);
-              onFinish();
-            });
-          }
-          else {
-            show(error, "Regex /" + regex + "/ is not assigned to this window.");
-          }
-        }
-        else {
-          show(error, "No regex provided.");
-        }
+      run: function (regex, windows, finish) {
+        if (!regex)
+          return finish("No regex provided.");
+
+        if (!windows.containsRegex(regex, window))
+          return finish("Regex /" + regex + "/ is not assigned to this window.");
+
+        windows.withCurrentWindow(function (window) {
+          windows.unassignRegex(regex, window);
+          finish();
+        });
       }
     },
     list: {
       desc: "List regexes assigned to the current window",
-      help: function (arg, windows, suggest) {
-        show(suggest, "Press enter to list the regexes assigned to this window.");
+      help: function (arg, windows, finish) {
+        finish("Press enter to list the regexes assigned to this window.");
       },
-      run: function (arg, windows, onFinish) {
-        onFinish();
+      run: function (arg, windows, finish) {
+        windows.withCurrentWindow(function (window) {
+          finish(windows.listRegexes(window));
+        });
       }
     },
     sort: {
       desc: "Sort all tabs into windows by assigned regexes",
-      help: function (arg, windows, suggest) {
-        show(suggest, "Press enter to sort all windows according to their assigned regexes.");
+      help: function () {
+        finish("Press enter to sort all windows according to their assigned regexes.");
       },
-      run: function (arg, windows, onFinish) {
-        onFinish();
+      run: function () {
       }
     },
     help: {
       desc: "Get help",
-      help: function (arg, windows, suggest) {
+      help: function (arg) {
         if (!arg || !commands[arg] || arg == 'help')
-          show(suggest, summarizeCommands(false));
+          finish(summarizeCommands(false));
         else
-          show(suggest, arg + ": " + getCommand(arg).desc);
+          finish(arg + ": " + getCommand(arg).desc);
       },
-      run: function (arg) {
-        show(error, summarizeCommands(true));
+      run: function () {
+        finish(summarizeCommands(true));
       }
     }
   };
@@ -461,12 +615,13 @@ var fchrome = {
   };
 
   host.omnibox.onInputChanged.addListener(function (text, suggest) {
-//    host.storage.local.remove('windows', function (data) { });
     host.storage.local.get('windows', function (data) {
       var command = getCommand(text);
       var arg = getArg(text);
       var windows = new Windows(data['windows'] || {});
-      command.help(arg, windows, suggest);
+      command.help(arg, windows, function (result) {
+        if (result) suggest([{content: " ", description: result}]);
+      });
     });
   });
 
@@ -476,15 +631,17 @@ var fchrome = {
       var command = getCommand(text);
       var arg = getArg(text);
       var windows = new Windows(stored);
-      command.run(arg, windows, function () {
-//        var str = '';
-//        for (var key in stored){ str += key + "\n"; }
-//        alert("Saving window data:\n" + str);
+      var result = command.run(arg, windows, function (status) {
+//        var str = ''; for (var key in stored){ str += key + "\n"; }; alert("Saving window data:\n" + str);
         host.storage.local.set({windows: stored}, function (){
           if (host.runtime.lastError)
             alert(host.runtime.lastError);
+          else if (status)
+            alert(status);
         });
       });
+
+      if (result) alert(result);
     });
   });
 
@@ -502,7 +659,3 @@ var fchrome = {
   });
 
 })(chrome);
-
-function testTabShepherd(){
-  fchrome.omnibox.enterInput("id")
-}
