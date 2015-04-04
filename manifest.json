@@ -1,16 +1,24 @@
 {
-   "background": {
-      "persistent": false,
-      "scripts": [ "TabShepherd.js" ]
-   },
-   "description": "Group tabs into windows by URL pattern.",
-   "manifest_version": 2,
-   "minimum_chrome_version": "9.0.0.0",
-   "name": "Tab Shepherd",
-   "permissions": [ "storage", "tabs" ],
-   "omnibox": {
-     "keyword": "ts"
-   },
-   "update_url": "https://clients2.google.com/service/update2/crx",
-   "version": "1.0"
+  "background": {
+    "persistent": false,
+    "scripts": [ "TabShepherd.js" ]
+  },
+  "description": "Group tabs into windows by URL pattern.",
+  "manifest_version": 2,
+  "minimum_chrome_version": "9.0.0.0",
+  "name": "Tab Shepherd",
+  "permissions": [ "storage", "tabs" ],
+  "omnibox": {
+    "keyword": "ts"
+  },
+  "update_url": "https://clients2.google.com/service/update2/crx",
+  "version": "1.0",
+  "browser_action": {
+    "default_icon": {
+      "19": "tab19.png",
+      "38": "tab38.png"
+    },
+    "default_title": "Tab Shepherd",
+    "default_popup": "popup.html"
+  }
 }

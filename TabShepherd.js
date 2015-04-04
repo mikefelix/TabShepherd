@@ -66,12 +66,15 @@ console.log("Initializing TabShepherd.");
       run: function () {
         var self = this;
         var msg = '';
-        for (var win in self.definitions){
-          if (self.definitions.hasOwnProperty(win))
-            msg += win + "\n";
-        }
+        self.forEachDefinition({
+          run: function (def, win, name) {
+            msg += name + " (" + (win ? "window " + win.id : "no attached window") + ")\n";
+          },
+          then: function () {
+            self.finish("Named windows:\n\n%s", msg);
+          }
+        });
 
-        self.finish("Named windows:\n\n%s", msg);
       }
     },
     new: {
@@ -159,24 +162,24 @@ console.log("Initializing TabShepherd.");
       examples: {"ts clean": "Clean window data, removing definitions for which no window is present. No tabs are affected."},
       help: function () {
         var self = this;
-        self.forEachDefinition(
-          function (win) { return !win },                    // condition
-          function (win, name) { return "'" + name + "'" },  // action if true
-          function (msg) {                                   // finish
+        self.forEachDefinition({
+          where: function (def, win) { return !win },
+          run: function (def, win, name) { return "'" + name + "'" },
+          then: function (msg) {
             self.finish(msg ? "Press enter to clean unused window definitions: " + msg : "No window definitions need cleaning.");
-          });
+          }});
       },
       run: function () {
         var self = this;
-        self.forEachDefinition(
-          function (win) { return !win },  // condition
-          function (win, name) {           // action if true
+        self.forEachDefinition({
+          where: function (def, win) { return !win },
+          run: function (def, win, name) {
             delete self.definitions[name];
             return "'" + name + "'";
           },
-          function (msg) {                 // finish
+          then: function (msg) {
             self.finish(msg ? "Cleaned unused window definitions: " + msg : "No window definitions needed cleaning.");
-          });
+          }});
       }
     },
     unnamed: {
@@ -231,8 +234,9 @@ console.log("Initializing TabShepherd.");
     f: {
       alias: "find"
     },
-    find: {
-      desc: "Find and focus a single tab",
+    go: {
+      alias: 'find'
+/*      desc: "Find and focus a single tab",
       type: "Changing focus",
       examples: {"ts find google.com": "If there is exactly one tab whose URL matches /google.com/, focus its window and select it."},
       help: function () {
@@ -264,18 +268,19 @@ console.log("Initializing TabShepherd.");
             })
           });
         });
-      }
+      }*/
     },
-    go: {
-      desc: "Go to tab(s) with a pattern, gathering them in a new window if more than one is found.",
+    find: {
+      desc: "Go to the first tab found matching a pattern.",
       type: "Changing focus",
-      examples: {"ts find google.com": "If there is exactly one tab whose URL matches /google.com/, focus its window and select it; else send all tabs matching /google.com/ to a new window and focus that window."},
+      examples: {"ts find google.com": "Focus the first tab found to match /google.com/."},
       help: function () {
         var self = this;
         var pattern = self.args[0];
+        var name = self.args.length > 1 ? self.args[1] : self.args[0];
         self.withTabsMatching(pattern, function (matchingTabs) {
           if (matchingTabs.length > 1)
-            return self.finish("Press enter to send the %s tabs matching /%s/ to a new window.", pattern, matchingTabs.length, pattern);
+            return self.finish("Press enter to focus the first of %s tabs matching /%s/.", matchingTabs.length, pattern);
           else if (matchingTabs.length == 1)
             return self.finish("Press enter to focus the tab matching /%s/.", pattern);
           else
@@ -286,7 +291,7 @@ console.log("Initializing TabShepherd.");
         var self = this;
         var pattern = self.args[0];
         self.withTabsMatching(pattern, function (matchingTabs) {
-          if (matchingTabs.length == 1){
+          if (matchingTabs.length >= 1){
             host.tabs.get(matchingTabs[0], function (tab) {
               host.windows.update(tab.windowId, {focused: true}, function () {
                 host.tabs.update(tab.id, {highlighted: true}, function () {
@@ -294,21 +299,9 @@ console.log("Initializing TabShepherd.");
               })
             });
           }
-          else if (matchingTabs.length > 1){
-            self.withNewWindow(name, function (win) {
-              for (var i = 0; i < matchingTabs.length; i++) {
-                host.tabs.move(tab.id, {windowId: win.id, index: -1}, function () {
-                  if (i == matchingTabs.length - 1) {
-                    host.tabs.remove(win.tabs[win.tabs.length - 1].id, function () {
-                      self.finish();
-                    });
-                  }
-                });
-              }
-            });
-          }
-          else
+          else {
             return self.finish("No matching tabs found for /" + pattern + "/.");
+          }
         });
       }
     },
@@ -441,6 +434,7 @@ console.log("Initializing TabShepherd.");
           return self.finish("Enter a window name followed by a URL.");
 
         var openTab = function (win) {
+          if (!/^http:\/\//.test(url)) url = 'http://' + url;
           host.tabs.create({windowId: win.id, url: url}, function () {
             self.finish();
           });
@@ -516,6 +510,19 @@ console.log("Initializing TabShepherd.");
       },
       run: function () {
         var self = this;
+      }
+    },
+    merge: {
+      desc: "Merge all the tabs from a window into this window.",
+      type: "Moving tabs",
+      examples: {"ts merge restaurants": "Move all the tabs from the window 'restaurants' into the current window and remove the 'restaurants' definition."},
+      help: function () {
+        var self = this;
+
+      },
+      run: function () {
+        var self = this;
+
       }
     },
 
@@ -626,7 +633,7 @@ console.log("Initializing TabShepherd.");
       },
       run: function () {
         var self = this;
-        self.finish(self.summarizeCommands(self.args[0]));
+        self.finish(self.summarizeCommands(arg));
       }
     }
   };
@@ -928,26 +935,36 @@ console.log("Initializing TabShepherd.");
     });
   };
 
-  Command.prototype.forEachWindow = function(condition, action, finish){
+  Command.prototype.forEachWindow = function(args){
+    var self = this;
+    var condition = args.where || function(){ return true };
+    var action = args.run;
+    var finish = args.then;
+
     host.windows.getAll({}, function (wins) {
       var msg = '';
       for (var i = 0; i < wins.length; i++){
         var win = wins[i];
         var name = win.name;
-        if (!win.name) continue;
-        var data = this.definitions[name];
-        var res = condition(win, name, data) ?
-                  action(win, name, data) :
-                  '';
-        msg = (msg ? ', ' : '') + res;
+        var def = self.definitions[name];
+
+        if (condition(win, def, name)){
+          var res = action(win, def, name);
+          msg += (msg ? ', ' : '') + res;
+        }
       }
 
       finish(msg);
     });
   };
 
-  Command.prototype.forEachDefinition = function(condition, action, finish){
-    var defs = this.definitions;
+  Command.prototype.forEachDefinition = function(args){
+    var self = this;
+    var defs = self.definitions;
+    var condition = args.where || function(){ return true };
+    var action = args.run;
+    var finish = args.then;
+
     host.windows.getAll({}, function (wins) {
       var findWin = function (defName) {
         for (var i = 0; i < wins.length; i++) {
@@ -963,26 +980,36 @@ console.log("Initializing TabShepherd.");
         var name = names[i];
         var def = defs[name];
         var win = findWin(name);
-        if (condition(win, name, def)) {
-          console.log("Def " + name + " passed.");
-          var res = action(win, name, def);
+        if (condition(def, win, name)) {
+          var res = action(def, win, name);
           msg += (msg ? ', ' : '') + res;
         }
       }
 
-      finish(msg);
+      if (finish) finish(msg);
     });
   };
 
   Command.prototype.close = function () {
-    for (var def in this.definitions){
-      if (!this.definitions.hasOwnProperty(def)) continue;
-      this.definitions[def].firstUrl
-    }
+    var self = this;
+    self.forEachDefinition({
+      run: function (def, win) {
+        if (win) {
+          host.tabs.query({index: 0, windowId: win.id}, function (tab) {
+            def.firstUrl = tab.url;
+          });
+        }
+      },
+      then: function () {
+        self.storeDefinitions();
+    }});
+  };
 
+  Command.prototype.storeDefinitions = function () {
     console.dir(this.definitions);
     host.storage.local.set({"windowDefs": this.definitions}, function () {
-      if (host.runtime.lastError) alert(host.runtime.lastError);
+      if (host.runtime.lastError)
+        alert(host.runtime.lastError);
     });
   };
 
@@ -1030,6 +1057,7 @@ console.log("Initializing TabShepherd.");
   };
 
   // init
+
   host.storage.local.get('windowDefs', function (data) {
     var defs = data['windowDefs'];
 
