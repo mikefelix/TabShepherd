@@ -1,28 +1,29 @@
 class TabShepherd
   
   constructor: (@storage, @omnibox, @windows, @tabs) ->
-    @omnibox.onInputChanged.addListener (text, suggest) ->
+    @omnibox.onInputChanged.addListener (text, suggest) =>
       c = new Command text, (res) ->
         suggest [ content: ' ', description: res ] if res
       c.help()
 
-    @omnibox.onInputEntered.addListener (text) ->
+    @omnibox.onInputEntered.addListener (text) =>
       c = new Command text, (res) ->
         alert res if res
       c.run()
 
     # init
-    @storage.get 'windowDefs', (data) ->
+    @storage.get 'windowDefs', (data) =>
       defMatchesWin = (def, win, tabs) ->
         def.id == win.id or (tabs[0] and def.firstUrl == tabs[0].url)
 
-      @windows.getAll {}, (wins) ->
+      @windows.getAll {}, (wins) =>
         for win in wins
-          @tabs.getAllInWindow win.id, (tabs) ->
+          @tabs.getAllInWindow win.id, (tabs) =>
             for own defName, def of data['windowDefs'] when defMatchesWin(def, win, tabs)
               win.name = defName
               win.def = def
 
+              
   commands =
     n: alias: 'name'
     name:
@@ -48,6 +49,7 @@ class TabShepherd
         @withCurrentWindow (win) =>
           @setName win, name
           @finish()
+          
     attach:
       desc: 'Attach the current window to a previously defined window definition'
       type: 'Managing window definitions'
@@ -56,6 +58,7 @@ class TabShepherd
         @withCurrentWindow (win) =>
       run: ->
         @withCurrentWindow (win) =>
+          
     defs:
       desc: 'List named window definitions'
       type: 'Managing window definitions'
@@ -69,6 +72,7 @@ class TabShepherd
             msg += name + ' (' + (if win then 'window ' + win.id else 'no attached window') + ')\n'
           then: =>
             @finish 'Named windows:\n\n%s', msg
+            
     new:
       desc: 'Create a new empty window and assign it a definition'
       type: 'Managing window definitions'
@@ -90,6 +94,7 @@ class TabShepherd
           return @finish('There is already a window named \'%s\'.', name) if win
           @withNewWindow name, =>
             @finish()
+            
     clear:
       desc: 'Clear window definitions'
       type: 'Managing window definitions'
@@ -121,6 +126,7 @@ class TabShepherd
             @finish 'Cleared window definition \'%s\'.', name
           else
             @finish 'Window definition \'%s\' not found.', name
+            
     clean:
       desc: 'Clean window data, removing definitions for which no window is present'
       type: 'Managing window definitions'
@@ -137,6 +143,7 @@ class TabShepherd
             delete @definitions[name]
             "'#{name}'"
           then: (msg) -> @finish if msg then 'Cleaned unused window definitions: ' + msg else 'No window definitions needed cleaning.'
+            
     unnamed:
       desc: 'Go to a window having no definition'
       type: 'Managing window definitions'
@@ -190,9 +197,9 @@ class TabShepherd
         pattern = @args[0]
         @withTabsMatching pattern, (matchingTabs) =>
           if matchingTabs.length >= 1
-            @tabs.get matchingTabs[0], (tab) ->
-              @windows.update tab.windowId, { focused: true }, ->
-                @tabs.update tab.id, { highlighted: true }, ->
+            @tabs.get matchingTabs[0], (tab) =>
+              @windows.update tab.windowId, focused: true, =>
+                @tabs.update tab.id, highlighted: true, =>
           else
             @finish("No matching tabs found for /#{pattern}/.")
     b: alias: 'bring'
@@ -238,7 +245,7 @@ class TabShepherd
             if matchingTabs.length < 1
               @finish(noneMsg, patterns.length, (if patterns.length == 1 then '' else 's'), @mkString(patterns, '\n'))
             else
-              @tabs.move windowId: win.id, index: -1, -> @finish()
+              @tabs.move windowId: win.id, index: -1, => @finish()
     s: alias: 'send'
     send:
       desc: 'Send the current tab to the window named in the argument'
@@ -261,13 +268,10 @@ class TabShepherd
               index: -1
           else
             @withNewWindow name, (win) ->
-              @tabs.move tab.id, {
-                windowId: win.id
-                index: -1
-              }, ->
-                @tabs.remove win.tabs[win.tabs.length - 1].id, ->
-                  @finish()
-    o: alias: 'open'
+              @tabs.move tab.id, windowId: win.id, index: -1, =>
+              @tabs.remove win.tabs[win.tabs.length - 1].id, => @finish()
+    o:
+      alias: 'open'
     open:
       desc: 'Open a URL or search in a different window'
       type: 'Moving tabs'
@@ -287,7 +291,7 @@ class TabShepherd
 
         openTab = (win) =>
           url = 'http://' + url if !/^http:\/\//.test(url)
-          @tabs.create windowId: win.id, url: url, ->
+          @tabs.create windowId: win.id, url: url, =>
             @finish()
 
         @withWindowNamed name, (existingWin) =>
@@ -325,10 +329,10 @@ class TabShepherd
               @finish('No tabs found matching the given pattern(s).')
             else
               @withNewWindow name, (win) ->
-                @tabs.move matchingTabs, windowId: win.id,index: -1, ->
+                @tabs.move matchingTabs, windowId: win.id,index: -1, =>
                   win.name = name
                   win.patterns = patterns
-                  @tabs.remove win.tabs[win.tabs.length - 1].id, ->
+                  @tabs.remove win.tabs[win.tabs.length - 1].id, =>
                     @finish()
     sort:
       desc: 'Sort all tabs into windows by assigned patterns'
@@ -485,7 +489,7 @@ class TabShepherd
         alert "Can't find id from " + typeof win
 
     focus: (win) ->
-      @windows.update win.id, { focused: true }, ->
+      @windows.update win.id, { focused: true }, =>
 
     getDefinition: (name) ->
       @definitions[name]
@@ -503,32 +507,32 @@ class TabShepherd
       undefined
 
     withActiveTab: (callback) ->
-      @tabs.query active: true, currentWindow: true, (tabs) ->
+      @tabs.query active: true, currentWindow: true, (tabs) =>
         callback tabs[0]
 
     withNewWindow: (name, callback) ->
       definitions = @definitions
-      @windows.create type: 'normal', (win) ->
+      @windows.create type: 'normal', (win) =>
         definitions[name] = id: win.id
         win.name = name
         callback win
 
     withWindow: (test, callback) ->
-      @windows.getAll {}, (wins) ->
+      @windows.getAll {}, (wins) =>
         for win in wins
           return callback(win) if test(win)
 
     withWindowNamed: (name, callback) ->
       def = @getDefinition(name)
       return callback() if !def
-      @windows.get def.id, {}, (w) ->
+      @windows.get def.id, {}, (w) =>
         if w
           w.name = name
           w.def = def
         callback w
 
     withCurrentWindow: (callback) ->
-      @windows.getCurrent {}, (win) ->
+      @windows.getCurrent {}, (win) =>
         win.name = @getName(win)
         callback win
 
@@ -543,7 +547,7 @@ class TabShepherd
       if not def.id?
         alert "Definition #{def} found for pattern #{pattern} but it has no assigned window."
       else
-        @windows.get def.id, {}, (w) ->
+        @windows.get def.id, {}, (w) =>
           w.def = def
           callback w
 
@@ -613,7 +617,7 @@ class TabShepherd
             return true if tab.url.toLowerCase().search(p) > -1 or tab.title.toLowerCase().search(p) > -1
         false
 
-      @tabs.query pinned: false, status: 'complete', windowType: 'normal', (tabs) ->
+      @tabs.query pinned: false, status: 'complete', windowType: 'normal', (tabs) =>
         matchingTabs = (tab.id for tab in tabs when matches(tab))
         callback matchingTabs
 
@@ -646,7 +650,7 @@ class TabShepherd
       @forEachDefinition
         run: (def, win) ->
           if win
-            @tabs.query index: 0, windowId: win.id, (tab) ->
+            @tabs.query index: 0, windowId: win.id, (tab) =>
               def.firstUrl = tab.url
         then: ->
           @storeDefinitions()
