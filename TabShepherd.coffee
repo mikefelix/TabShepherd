@@ -2,12 +2,12 @@ class TabShepherd
   
   constructor: (@storage, @omnibox, @windows, @tabs) ->
     @omnibox.onInputChanged.addListener (text, suggest) =>
-      c = new Command text, (res) ->
+      c = new Command @, text, (res) ->
         suggest [ content: ' ', description: res ] if res
       c.help()
 
     @omnibox.onInputEntered.addListener (text) =>
-      c = new Command text, (res) ->
+      c = new Command @, text, (res) ->
         alert res if res
       c.run()
 
@@ -305,7 +305,7 @@ class TabShepherd
     extract:
       desc: 'Extract tabs matching the pattern argument into a new window named with that pattern'
       type: 'Moving tabs'
-      examples: 'ts extract social facebook.com twitter.com': 'Create a new window, give it a definition named \'social\', assign patterns /facebook.com/ and /twitter.com/ to that definition, and move all tabs whose URLs match the patterns there. This is effectively "ts new social", followed by "ts assign facebook.com twitter.com", then "ts bring". '
+      examples: 'ts extract social facebook.com twitter.com': "Create a new window, give it a definition named 'social', assign patterns /facebook.com/ and /twitter.com/ to that definition, and move all tabs whose URLs match the patterns there. This is effectively \"ts new social\", followed by \"ts assign facebook.com twitter.com\", then \"ts bring\". "
       help: ->
         if @args.length == 0
           @finish('Enter a name or pattern.')
@@ -317,7 +317,7 @@ class TabShepherd
             if num < 1
               @finish('No tabs found matching the given pattern(s).')
             else
-              @finish 'Press enter to extract %s tab(s) matching /%s/%s into a new window named \'%s\'.', num, patterns[0], (if patterns.length > 1 then ', ...' else ''), name
+              @finish "Press enter to extract %s tab(s) matching /%s/%s into a new window named '%s'.", num, patterns[0], (if patterns.length > 1 then ', ...' else ''), name
       run: ->
         if @args.length == 0
           @finish('Enter a name or pattern.')
@@ -414,27 +414,30 @@ class TabShepherd
       desc: 'Get help on a command'
       type: 'Help'
       examples: 'ts help bring': 'Show the usage examples for the "bring" command.'
-      help: ->
-        arg = @args[0]
+      help: (arg) ->
         if !arg or !commands[arg] or arg == 'help'
           @finish @summarizeCommands(false)
         else
           @finish arg + ': ' + @getCommand(arg).desc
-      run: ->
+      run: (arg) ->
         @finish @summarizeCommands(arg)
 
   class Command
-    constructor: (text, output) ->
+    constructor: (ts, text, output) ->
+      @storage = ts.storage
+      @omnibox = ts.omnibox
+      @windows = ts.windows
+      @tabs = ts.tabs
       @cmd = @getCommand(text)
       @args = @getArgs(text)
       @output = output
 
-    getArgs: (text) ->
+    getArgs: (text) =>
       text = text.trim()
       return [] if !/^\w+\s+\w+/.test(text)
       text.replace(/^\w+\s+/, '').split /\s+/
 
-    getCommand: (text) ->
+    getCommand: (text) =>
       idx = if text then text.indexOf(' ') else -1
       name = if idx == -1 then text else text.substring(0, idx)
       if commands[name]
@@ -445,7 +448,7 @@ class TabShepherd
       else
         commands['help']
 
-    showExamples: (cmd) ->
+    showExamples: (cmd) =>
       return '' if not commands[cmd]?
       msg = '"' + cmd + '": ' + commands[cmd].desc + '.\n\nExamples:\n\n'
       command = commands[cmd]
@@ -454,7 +457,7 @@ class TabShepherd
         msg += "#{ex}\n  #{examples[ex]}\n\n"
       msg
 
-    summarizeCommands: (full) ->
+    summarizeCommands: (full) =>
       msg = ''
       return @showExamples(full) if full and full != true
       msg += 'Syntax: ts <command> <arguments>\n\n' if full
@@ -475,12 +478,12 @@ class TabShepherd
             msg += name + ' '
       msg
 
-    makeText: (arr) ->
+    makeText: (arr) =>
       return undefined if arr.length == 0
       return arr[0] if arr.length == 1
       a.replace('%s', a) for a in arr[1..]
 
-    getId: (win) ->
+    getId: (win) =>
       if typeof win == 'number'
         win
       else if typeof win == 'object'
@@ -488,41 +491,41 @@ class TabShepherd
       else
         alert "Can't find id from " + typeof win
 
-    focus: (win) ->
+    focus: (win) =>
       @windows.update win.id, { focused: true }, =>
 
-    getDefinition: (name) ->
+    getDefinition: (name) =>
       @definitions[name]
 
-    setName: (win, name) ->
+    setName: (win, name) =>
       delete @definitions[win.name]
       @definitions[name] = id: win.id
       win.name = name
       win.def = @definitions[name]
 
-    getName: (win) ->
+    getName: (win) =>
       id = @getId(win)
       for own name of @definitions
         return name if @definitions[name].id == id
       undefined
 
-    withActiveTab: (callback) ->
+    withActiveTab: (callback) =>
       @tabs.query active: true, currentWindow: true, (tabs) =>
         callback tabs[0]
 
-    withNewWindow: (name, callback) ->
+    withNewWindow: (name, callback) =>
       definitions = @definitions
       @windows.create type: 'normal', (win) =>
         definitions[name] = id: win.id
         win.name = name
         callback win
 
-    withWindow: (test, callback) ->
+    withWindow: (test, callback) =>
       @windows.getAll {}, (wins) =>
         for win in wins
           return callback(win) if test(win)
 
-    withWindowNamed: (name, callback) ->
+    withWindowNamed: (name, callback) =>
       def = @getDefinition(name)
       return callback() if !def
       @windows.get def.id, {}, (w) =>
@@ -531,17 +534,17 @@ class TabShepherd
           w.def = def
         callback w
 
-    withCurrentWindow: (callback) ->
+    withCurrentWindow: (callback) =>
       @windows.getCurrent {}, (win) =>
         win.name = @getName(win)
         callback win
 
-    getDefForPattern: (pattern) ->
+    getDefForPattern: (pattern) =>
       for own name, def of @definitions when def.patterns
         for pattern in def.patterns
           return def if pattern == def.patterns[i]
 
-    withWindowForPattern: (pattern, callback) ->
+    withWindowForPattern: (pattern, callback) =>
       def = @getDefForPattern(pattern)
       return callback() if not def?
       if not def.id?
@@ -551,7 +554,7 @@ class TabShepherd
           w.def = def
           callback w
 
-    assignPattern: (pattern, win) ->
+    assignPattern: (pattern, win) =>
       name = win.name
       if not name?
         alert 'Window has no name!'
@@ -565,7 +568,7 @@ class TabShepherd
       def.patterns.push pattern
       true
 
-    unassignPattern: (pattern, window) ->
+    unassignPattern: (pattern, window) =>
       if not window.name?
         alert 'Window has no name.'
         return false
@@ -585,7 +588,7 @@ class TabShepherd
       alert "Could not delete pattern #{pattern} from window '#{window.name}'."
       false
 
-    containsPattern: (pattern) ->
+    containsPattern: (pattern) =>
       if !@definitions[window.name]
         alert 'Unknown window ' + window.name
       regexes = @definitions[window.name].regexes
@@ -594,13 +597,13 @@ class TabShepherd
         return true if regex == pattern
       false
 
-    listPatterns: (window) ->
+    listPatterns: (window) =>
       def = @definitions[window.name]
       return '' if !def
       patterns = def.patterns or []
       "/#{patt}/\n" for patt in patterns
 
-    withTabsMatching: (patterns, callback) ->
+    withTabsMatching: (patterns, callback) =>
       return callback([]) if !patterns
       patterns = [ patterns ] if typeof patterns == 'string'
       return callback([]) if patterns.length == 0 or patterns[0] == ''
@@ -621,7 +624,7 @@ class TabShepherd
         matchingTabs = (tab.id for tab in tabs when matches(tab))
         callback matchingTabs
 
-    forEachWindow: (args) ->
+    forEachWindow: (args) =>
       condition = args.where or -> true
       action = args.run
       finish = args.then
@@ -630,7 +633,7 @@ class TabShepherd
         msgs = action(win, def, win.name) for win in wins when condition(win, def, win.name)
         finish msgs.join(',')
 
-    forEachDefinition: (args) ->
+    forEachDefinition: (args) =>
       condition = args.where or -> true
       action = args.run
       finish = args.then
@@ -638,15 +641,11 @@ class TabShepherd
         findWin = (defName) ->
           for win in wins
             return win if win.name == defName
-          undefined
-        msgs = for own name, def of @definitions
-          win = findWin(name)
-          if condition(def, win, name)
-            msgs.push action(def, win, name)
+        msgs = action(def, win, name) for own name, def of @definitions when ((win = findWin(name)) and condition(def, win, name))
         if finish
           finish msgs.join(',')
 
-    close: ->
+    close: =>
       @forEachDefinition
         run: (def, win) ->
           if win
@@ -655,30 +654,29 @@ class TabShepherd
         then: ->
           @storeDefinitions()
 
-    storeDefinitions: ->
+    storeDefinitions: =>
       console.dir @definitions
       @storage.set windowDefs: @definitions, =>
         if chrome.runtime.lastError
           alert chrome.runtime.lastError
 
-    finish: ->
+    finish: =>
       status = @makeText(arguments)
       @output status
       @close() if @saveData
 
-    run: ->
+    run: =>
       @saveData = true
       @exec @cmd.run
 
-    help: ->
+    help: =>
       @saveData = false
       @exec @cmd.help
 
-    exec: (f) ->
-      self = this
+    exec: (f) =>
       @storage.get 'windowDefs', (data) =>
         @definitions = data['windowDefs'] or {}
-        f.call self
+        f.apply @, @args
 
 
 new TabShepherd chrome.storage.local, chrome.omnibox, chrome.windows, chrome.tabs
