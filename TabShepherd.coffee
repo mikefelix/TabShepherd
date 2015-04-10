@@ -1,7 +1,9 @@
 class TabShepherd
   
   constructor: (@storage, @omnibox, @windows, @tabs, @runtime) ->
-    loadDefinitions ->
+#    loadDefinitions ->
+    @storage.get 'windowDefs', (data) =>
+      @definitions = data['windowDefs'] or {}
       defMatchesWin = (def, win, tabs) ->
         def.id == win.id or (tabs[0] and def.firstUrl == tabs[0].url)
 
@@ -213,9 +215,10 @@ class TabShepherd
         all.reduce (t, s) -> t and s
     else
       alert "Can't use this argument type."
-      return
+      undefined
 
-    withEachWindow where: where, run: callback
+    if where
+      withEachWindow where: where, run: callback
 
   withEachDefinition = (args) =>
     condition = args.where or -> true
@@ -696,5 +699,5 @@ class TabShepherd
       run: (arg) ->
         @finish summarizeCommands(arg)
 
-
-new TabShepherd chrome.storage.local, chrome.omnibox, chrome.windows, chrome.tabs, chrome.runtime
+root = exports ? window
+root.TabShepherd = TabShepherd
