@@ -1,7 +1,7 @@
 {
   "background": {
     "persistent": false,
-    "scripts": [ "TabShepherd.js" ]
+    "scripts": [ "TabShepherd.js", "bootstrap.js" ]
   },
   "description": "Group tabs into windows by URL pattern.",
   "manifest_version": 2,
