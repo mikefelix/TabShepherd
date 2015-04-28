@@ -28,12 +28,26 @@
       -
       - [1]: https://developer.chrome.com/extensions/contentSecurityPolicy
      -->
-    <script src="popup.js"></script>
+    <script src="TabShepherd.js"></script>
+    <script src="angular.min.js"></script>
   </head>
-  <body>
-    <div id="status">
-        <b>This window's definition:</b>
+  <body ng-app="TabShepPopup">
+    <div id="status" ng-controller="PopupController">
+        <div id="definition">
+            This window is named: <input type="text" id="name" style="width:100px" ng-model="name"/>
+            <input type="button" id="setName" value="Set" ng-click="setName()" ng-disabled="def.name == name"/>
+        </div>
+        <div id="patternOuter">
+            Patterns assigned to this window: <br/>
+            <div id="patterns" ng-model="patterns">
+                <div ng-repeat="pattern in def.patterns">{{pattern}}</div>
+            </div>
+            <input type="text" id="newPattern" style="width:200px" ng-model="newPattern"/>
+            <input type="button" id="addPattern" value="Add" ng-click="addPattern()"/>
+        </div>
     </div>
+
+    <script src="popup.js"></script>
   </body>
 </html>
 

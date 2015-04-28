@@ -1,1 +1,1 @@
-new TabShepherd(chrome)
+new TabShepherd(chrome, window.alert)
