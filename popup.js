@@ -9,7 +9,7 @@
   popup.controller('PopupController', function($scope) {
     return ts.withCurrentWindow(function(win) {
       var ref;
-      $scope.name = (ref = win.name) != null ? ref : '';
+      $scope.name = (ref = win.name) != null ? ref : 'none';
       if (win.name) {
         $scope.def = ts.getDefinition(win.name);
       }

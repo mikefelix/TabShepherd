@@ -4,7 +4,7 @@
     hasProp = {}.hasOwnProperty;
 
   TabShepherd = (function() {
-    var Command, alert, assignPattern, commands, containsPattern, definitions, deleteDefinition, focus, getArgs, getCommand, getDefForPattern, getDefinition, getId, getName, listPatterns, loadDefinitions, makeText, omnibox, runtime, setName, showExamples, storage, storeDefinitions, summarizeCommands, tabs, unassignPattern, windows, withActiveTab, withCurrentWindow, withEachDefinition, withEachWindow, withFirstTab, withNewWindow, withTabsMatching, withWindow, withWindowForPattern, withWindowNamed;
+    var Command, alert, assignPattern, commands, containsPattern, definitions, deleteDefinition, focus, getArgs, getCommand, getDefForPattern, getDefinition, getId, getName, isRegex, listPatterns, loadDefinitions, makeText, omnibox, runtime, setName, showExamples, storage, storeDefinitions, summarizeCommands, tabs, unassignPattern, windows, withActiveTab, withCurrentWindow, withEachDefinition, withEachWindow, withHighlightedTab, withNewWindow, withTabsMatching, withWindow, withWindowForPattern, withWindowNamed;
 
     storage = null;
 
@@ -31,24 +31,35 @@
         return function(data) {
           var defMatchesWin;
           definitions = data['windowDefs'] || {};
-          defMatchesWin = function(def, win, tabs) {
-            return def.id === win.id || (tabs[0] && def.firstUrl === tabs[0].url);
+          defMatchesWin = function(def, win, activeTab) {
+            if (def.id === win.id) {
+              console.log(def.id + " == " + win.id);
+            }
+            if (def.activeUrl === activeTab.url) {
+              console.log(def.activeUrl + " == " + activeTab.url);
+            }
+            return def.id === win.id || def.activeUrl === activeTab.url;
           };
           return withEachWindow({
             run: function(win) {
-              return tabs.getAllInWindow(win.id, function(tabs) {
-                var def, defName, results;
-                results = [];
+              return tabs.query({
+                windowId: win.id,
+                active: true
+              }, function(tabs) {
+                var def, defName, results1, tab;
+                tab = tabs[0];
+                results1 = [];
                 for (defName in definitions) {
                   if (!hasProp.call(definitions, defName)) continue;
                   def = definitions[defName];
-                  if (!(defMatchesWin(def, win, tabs))) {
+                  if (!(defMatchesWin(def, win, tab))) {
                     continue;
                   }
+                  console.log("win " + win.id + " gets name " + defName);
                   win.name = defName;
-                  results.push(win.def = def);
+                  results1.push(win.def = def);
                 }
-                return results;
+                return results1;
               });
             }
           });
@@ -87,8 +98,10 @@
             var def;
             if ((win.name != null)) {
               def = getDefinition(win.name);
-              return withFirstTab(win, function(tab) {
-                def.firstUrl = tab.url;
+              return withHighlightedTab(win, function(tabs) {
+                if (tabs.length > 0) {
+                  def.activeUrl = tabs[0].url;
+                }
                 return storeDefinitions();
               });
             }
@@ -124,30 +137,66 @@
       return text.replace(/^\w+\s+/, '').split(/\s+/);
     };
 
-    makeText = function(args) {
-      var a, arr, j, len, msg, ref;
-      arr = (function() {
-        var j, len, results;
-        results = [];
-        for (j = 0, len = args.length; j < len; j++) {
-          a = args[j];
-          results.push(a);
+    TabShepherd.prototype.makeText = function() {
+      var a;
+      return makeText.apply(null, (function() {
+        var j, len, results1;
+        results1 = [];
+        for (j = 0, len = arguments.length; j < len; j++) {
+          a = arguments[j];
+          results1.push(a);
         }
-        return results;
-      })();
+        return results1;
+      }).apply(this, arguments));
+    };
+
+    makeText = function() {
+      var a, arg, arr, j, len, m, matches, msg, v;
+      arr = (function() {
+        var j, len, results1;
+        results1 = [];
+        for (j = 0, len = arguments.length; j < len; j++) {
+          a = arguments[j];
+          results1.push(a);
+        }
+        return results1;
+      }).apply(this, arguments);
       if (arr.length === 0) {
         return void 0;
       }
-      msg = arr[0];
-      if (arr.length === 1) {
+      msg = arr.shift();
+      if (arr.length === 0) {
         return msg;
       }
-      ref = arr.slice(1);
-      for (j = 0, len = ref.length; j < len; j++) {
-        a = ref[j];
-        msg = msg.replace('%s', a);
+      matches = msg.match(/(%[spw])/g);
+      if (matches == null) {
+        return msg;
+      }
+      for (j = 0, len = matches.length; j < len; j++) {
+        m = matches[j];
+        arg = arr.shift();
+        v = (function() {
+          switch (m) {
+            case '%p':
+              if (isRegex(arg)) {
+                return "/" + arg + "/";
+              } else {
+                return "'" + arg + "'";
+              }
+              break;
+            case '%w':
+              return "\"" + arg + "\"";
+            default:
+              return arg;
+          }
+        })();
+        msg = msg.replace(m, v);
       }
       return msg;
+    };
+
+    isRegex = function(arg) {
+      return /[*+|()$^?\[\]{}]/.test(arg);
     };
 
     getId = function(win) {
@@ -359,18 +408,18 @@
     };
 
     listPatterns = function(window) {
-      var def, j, len, patt, patterns, results;
+      var def, j, len, patt, patterns, results1;
       def = definitions[window.name];
       if (!def) {
         return '';
       }
       patterns = def.patterns || [];
-      results = [];
+      results1 = [];
       for (j = 0, len = patterns.length; j < len; j++) {
         patt = patterns[j];
-        results.push("/" + patt + "/\n");
+        results1.push("/" + patt + "/\n");
       }
-      return results;
+      return results1;
     };
 
     withWindowForPattern = function(pattern, callback) {
@@ -407,13 +456,13 @@
           var j, len, p, r;
           for (j = 0, len = patterns.length; j < len; j++) {
             p = patterns[j];
-            if (/^\/.*\/$/.test(p)) {
-              r = new RegExp(p);
+            if (/^\/.+\/$/.test(p)) {
+              r = new RegExp(p.substring(1, p.length - 1));
               if (r.test(tab.url) || r.test(tab.title)) {
                 return true;
               }
-            } else if (/[*+?{}\[\]]/.test(p)) {
-              r = new RegExp('/' + p.replace(/\//, '\\/') + '/i');
+            } else if (isRegex(p)) {
+              r = new RegExp(p);
               if (r.test(tab.url) || r.test(tab.title)) {
                 return true;
               }
@@ -427,24 +476,22 @@
         };
       })(this);
       return tabs.query({
-        pinned: false,
         status: 'complete',
         windowType: 'normal'
       }, (function(_this) {
-        return function(tabs) {
-          var matchingTabs, tab;
-          matchingTabs = (function() {
-            var j, len, results;
-            results = [];
-            for (j = 0, len = tabs.length; j < len; j++) {
-              tab = tabs[j];
+        return function(results) {
+          var tab;
+          return callback((function() {
+            var j, len, results1;
+            results1 = [];
+            for (j = 0, len = results.length; j < len; j++) {
+              tab = results[j];
               if (matches(tab)) {
-                results.push(tab.id);
+                results1.push(tab.id);
               }
             }
-            return results;
-          })();
-          return callback(matchingTabs);
+            return results1;
+          })());
         };
       })(this));
     };
@@ -465,29 +512,18 @@
       })(this);
       return windows.getAll({}, (function(_this) {
         return function(wins) {
-          var def, j, len, msgs, results, win;
-          results = [];
+          var def, j, len, msgs, win;
+          msgs = [];
           for (j = 0, len = wins.length; j < len; j++) {
             win = wins[j];
             def = definitions[win.name];
-            msgs = (function() {
-              var l, len1, results1;
-              results1 = [];
-              for (l = 0, len1 = wins.length; l < len1; l++) {
-                win = wins[l];
-                if (condition(win, def, win.name)) {
-                  results1.push(action(win, def, win.name));
-                }
-              }
-              return results1;
-            })();
-            if (finish != null) {
-              results.push(finish(reduce(msgs)));
-            } else {
-              results.push(void 0);
+            if (condition(win, def, win.name)) {
+              msgs.push(action(win, def, win.name));
             }
           }
-          return results;
+          if (finish != null) {
+            return finish(reduce(msgs));
+          }
         };
       })(this));
     };
@@ -506,14 +542,14 @@
         return function(win) {
           var all, k, v;
           all = (function() {
-            var results;
-            results = [];
+            var results1;
+            results1 = [];
             for (k in arg) {
               if (!hasProp.call(arg, k)) continue;
               v = arg[k];
-              results.push(win[k] === v);
+              results1.push(win[k] === v);
             }
-            return results;
+            return results1;
           })();
           return all.reduce(function(t, s) {
             return t && s;
@@ -540,27 +576,24 @@
       };
       return windows.getAll({}, function(wins) {
         var def, findWin, msgs, name, win;
-        findWin = function(defName) {
+        findWin = function(name) {
           var j, len, win;
           for (j = 0, len = wins.length; j < len; j++) {
             win = wins[j];
-            if (win.name === defName) {
+            if (win.name === name) {
               return win;
             }
           }
         };
-        msgs = (function() {
-          var results;
-          results = [];
-          for (name in definitions) {
-            if (!hasProp.call(definitions, name)) continue;
-            def = definitions[name];
-            if ((win = findWin(name)) && condition(def, win, name)) {
-              results.push(action(def, win, name));
-            }
+        msgs = [];
+        for (name in definitions) {
+          if (!hasProp.call(definitions, name)) continue;
+          def = definitions[name];
+          win = findWin(name);
+          if (condition(def, win, name)) {
+            msgs.push(action(def, win, name));
           }
-          return results;
-        })();
+        }
         if (finish != null) {
           return finish(reduce(msgs));
         }
@@ -601,17 +634,26 @@
     };
 
     withWindowNamed = function(name, callback) {
-      return withWindow((function(win) {
-        return win.name === name;
-      }), callback);
+      return windows.getAll({}, function(wins) {
+        var j, len, win;
+        for (j = 0, len = wins.length; j < len; j++) {
+          win = wins[j];
+          if (win.name === name) {
+            return callback(win);
+          }
+        }
+        return callback(void 0);
+      });
     };
 
-    withFirstTab = function(win, callback) {
+    withHighlightedTab = function(win, callback) {
       return tabs.query({
-        index: 0,
+        active: true,
         windowId: win.id
-      }, function(tab) {
-        return callback(tab);
+      }, function(tabs) {
+        if (tabs.length > 0) {
+          return callback(tabs[0]);
+        }
       });
     };
 
@@ -643,8 +685,17 @@
       };
 
       Command.prototype.finish = function() {
-        var status;
-        status = makeText(arguments);
+        var a, args, status;
+        args = (function() {
+          var j, len, results1;
+          results1 = [];
+          for (j = 0, len = arguments.length; j < len; j++) {
+            a = arguments[j];
+            results1.push(a);
+          }
+          return results1;
+        }).apply(this, arguments);
+        status = makeText.apply(null, args);
         output(status);
         if (saveData) {
           return close();
@@ -670,6 +721,75 @@
     };
 
     commands = {
+      tabs: {
+        desc: "Show active tab information",
+        type: 'Managing window definitions',
+        examples: {
+          "ts tabs": "Show active tab information."
+        },
+        help: function() {
+          return this.finish("Press enter to see active tab information.");
+        },
+        run: function() {
+          return tabs.query({
+            active: true
+          }, (function(_this) {
+            return function(t) {
+              var tab;
+              return _this.finish(((function() {
+                var j, len, results1;
+                results1 = [];
+                for (j = 0, len = t.length; j < len; j++) {
+                  tab = t[j];
+                  results1.push(tab.windowId + ": " + tab.url);
+                }
+                return results1;
+              })()).join("\n"));
+            };
+          })(this));
+        }
+      },
+      wins: {
+        desc: "Show window information",
+        type: 'Managing window definitions',
+        examples: {
+          "ts tabs": "Show window information."
+        },
+        help: function() {
+          return this.finish("Press enter to see window information.");
+        },
+        run: function() {
+          return windows.getAll((function(_this) {
+            return function(wins) {
+              var win;
+              return _this.finish(((function() {
+                var j, len, results1;
+                results1 = [];
+                for (j = 0, len = wins.length; j < len; j++) {
+                  win = wins[j];
+                  results1.push(win.id + ": " + win.name);
+                }
+                return results1;
+              })()).join("\n"));
+            };
+          })(this));
+        }
+      },
+      id: {
+        desc: "Show the current window's ID",
+        type: 'Managing window definitions',
+        examples: {
+          "ts id": "Show the current window's ID."
+        },
+        help: function() {
+          return withCurrentWindow((function(_this) {
+            return function(win) {
+              return _this.finish("This window's ID is %s and its name is %w", win.id, win.name);
+            };
+          })(this));
+        },
+        run: function() {}
+      },
       n: {
         alias: 'name'
       },
@@ -684,13 +804,13 @@
             return function(win) {
               if (win.name != null) {
                 if (newName != null) {
-                  return _this.finish("Press enter to change window name from '%s' to '%s'.", win.name, newName);
+                  return _this.finish("Press enter to change window name from %w to %w.", win.name, newName);
                 } else {
-                  return _this.finish("Enter a new name for this window (currently named '%s').", win.name);
+                  return _this.finish("Enter a new name for this window (currently named %w).", win.name);
                 }
               } else {
                 if (newName != null) {
-                  return _this.finish("Press enter to name this window '%s'.", newName);
+                  return _this.finish("Press enter to name this window %w.", newName);
                 } else {
                   return _this.finish('Enter a name for this window.');
                 }
@@ -737,17 +857,23 @@
           return this.finish('Press enter to list the window definitions.');
         },
         run: function() {
-          var msg;
-          msg = '';
+          console.log(definitions);
           return withEachDefinition({
             run: (function(_this) {
               return function(def, win, name) {
-                return msg += name + ' (' + (win ? 'window ' + win.id : 'no attached window') + ')\n';
+                var winText;
+                winText = win != null ? 'window ' + win.id : 'no attached window';
+                return name + " (" + winText + ")";
+              };
+            })(this),
+            reduce: (function(_this) {
+              return function(msgs) {
+                return msgs.join("\n");
               };
             })(this),
             then: (function(_this) {
-              return function() {
-                return _this.finish('Named windows:\n\n%s', msg);
+              return function(text) {
+                return _this.finish('Named windows:\n\n%s', text);
               };
             })(this)
           });
@@ -767,9 +893,13 @@
           return withWindowNamed(name, (function(_this) {
             return function(win) {
               if (win != null) {
-                return _this.finish("There is already a window named '%s'.", name);
+                return _this.finish("There is already a window named %w.", name);
+              } else if (_this.args.length === 1) {
+                return _this.finish("Press enter to open a new window and name it %w.", name);
+              } else if (_this.args.length === 2) {
+                return _this.finish("Press enter to open a new window named %w and assign it the pattern %p.", name, _this.args[1]);
               } else {
-                return _this.finish("Press enter to open a new window and name it '%s'.", name);
+                return _this.finish("Press enter to open a new window named %w and assign it the patterns.", name);
               }
             };
           })(this));
@@ -778,12 +908,22 @@
           if (!name) {
             return this.finish('No window name provided.');
           }
-          return withWindow(name, (function(_this) {
+          return withWindowNamed(name, (function(_this) {
             return function(win) {
               if (win) {
-                return _this.finish("There is already a window named '%s'.", name);
+                return _this.finish("There is already a window named %w.", name);
               }
-              return withNewWindow(name, function() {
+              return withNewWindow(name, function(win) {
+                var arg, def, j, len, ref;
+                def = getDefinition(name);
+                ref = _this.args.slice(1);
+                for (j = 0, len = ref.length; j < len; j++) {
+                  arg = ref[j];
+                  if (win.patterns == null) {
+                    def.patterns = [];
+                  }
+                  def.patterns.push(arg);
+                }
                 return _this.finish();
               });
             };
@@ -915,17 +1055,17 @@
           if (!getDefinition(name)) {
             return this.finish('Type a defined window name.');
           } else {
-            return this.finish("Press enter to focus window '%s'.", name);
+            return this.finish("Press enter to focus window %w.", name);
           }
         },
         run: function(name) {
           if (!getDefinition(name)) {
-            return this.finish("No such window '%s'.", name);
+            return this.finish("No such window %w.", name);
           } else {
             return withWindow(name, (function(_this) {
               return function(win) {
                 if (win == null) {
-                  return _this.finish("Window not found: '%s'.", name);
+                  return _this.finish("Window not found: %w.", name);
                 } else {
                   focus(win);
                   return _this.finish();
@@ -935,64 +1075,123 @@
           }
         }
       },
-      go: {
-        desc: 'Go to the tab matching the pattern, or if there are multiple matches perform an extract.',
+      go_exp: {
+        desc: 'Perform either "find", "extract" or "focus", depending on the arguments',
         type: 'Changing focus',
         examples: {
-          'ts go document': 'If there is one tab matching /document/, go there (i.e. ts find document), else behave as "ts extract document"'
+          'ts go document': 'If there is one tab matching /document/, behave as "ts find document", else behave as "ts extract document".',
+          'ts go "work"': 'If there is a window named "work", behave as "ts focus work", otherwise behave as "ts new work".'
         },
         help: function(pattern, name) {
-          return withTabsMatching(pattern, (function(_this) {
-            return function(matchingTabs) {
-              if (matchingTabs.length === 1) {
-                return _this.finish("Press enter to focus the single tab matching " + pattern + ".");
-              } else if (matchingTabs.length > 1) {
-                if (name == null) {
-                  name = pattern;
-                }
-                return _this.finish("Press enter to extract the " + matchingTabs.length + " tabs matching " + pattern + " into a new window named " + name + ".");
-              } else {
-                return _this.finish("No tabs found matching " + pattern + ".");
-              }
-            };
-          })(this));
+          if (name == null) {
+            name = pattern;
+          }
+          if (/^"/.test(pattern)) {
+            return getCommand('focus').help.apply(this, this.args);
+          } else {
+            return getCommand('find').help.apply(this, this.args);
+          }
         },
         run: function(pattern, name) {
           if (name == null) {
             name = pattern;
           }
-          return withTabsMatching(pattern, (function(_this) {
-            return function(matchingTabs) {
-              if (matchingTabs.length === 1) {
-                return tabs.get(matchingTabs[0], function(tab) {
-                  return windows.update(tab.windowId, {
-                    focused: true
-                  }, function() {
-                    return tabs.update(tab.id, {
-                      highlighted: true
-                    }, function() {});
+          if (/^"/.test(pattern)) {
+            return getCommand('focus').run.apply(this, this.args);
+          } else {
+            return getCommand('find').run.apply(this, this.args);
+          }
+        }
+      },
+      go: {
+        desc: 'Perform either "find", "extract" or "focus", depending on the arguments',
+        type: 'Changing focus',
+        examples: {
+          'ts go document': 'If there is one tab matching /document/, behave as "ts find document", else behave as "ts extract document".',
+          'ts go "work"': 'If there is a window named "work", behave as "ts focus work", otherwise behave as "ts new work".'
+        },
+        help: function(pattern, name) {
+          if (name == null) {
+            name = pattern;
+          }
+          if (/^"/.test(pattern)) {
+            if (!getDefinition(pattern)) {
+              return this.finish("Press enter to create a new window named %w", name.replace(/"/, ""));
+            } else {
+              return this.finish("Press enter to focus window %w.", name.replace(/"/, ""));
+            }
+          } else {
+            return withTabsMatching(pattern, (function(_this) {
+              return function(matchingTabsIds) {
+                if (matchingTabsIds.length === 1) {
+                  return _this.finish("Press enter to focus the single tab matching %p.", pattern);
+                } else if (matchingTabsIds.length > 1) {
+                  return _this.finish("Press enter to extract the %s tabs matching %p into a new window named %w.", matchingTabsIds.length, pattern, name);
+                } else {
+                  return _this.finish("No tabs found matching %p.", pattern);
+                }
+              };
+            })(this));
+          }
+        },
+        run: function(pattern, name) {
+          var win;
+          if (name == null) {
+            name = pattern;
+          }
+          if (/^"/.test(pattern)) {
+            win = pattern.replace(/"/, "");
+            if (!getDefinition(pattern)) {
+              return withNewWindow(name, (function(_this) {
+                return function() {
+                  return _this.finish();
+                };
+              })(this));
+            } else {
+              return withWindow(name, (function(_this) {
+                return function(win) {
+                  if (win == null) {
+                    _this.finish("Window not found: %w.", name);
+                  }
+                  focus(win);
+                  return _this.finish();
+                };
+              })(this));
+            }
+          } else {
+            return withTabsMatching(pattern, (function(_this) {
+              return function(matchingTabsIds) {
+                if (matchingTabsIds.length === 1) {
+                  return tabs.get(matchingTabsIds[0], function(tab) {
+                    return windows.update(tab.windowId, {
+                      focused: true
+                    }, function() {
+                      return tabs.update(tab.id, {
+                        active: true
+                      }, function() {});
+                    });
                   });
-                });
-              } else if (matchingTabs.length > 1) {
-                return withNewWindow(name, function(win) {
-                  return tabs.move(matchingTabs, {
-                    windowId: win.id,
-                    index: -1
-                  }, (function(_this) {
-                    return function() {
-                      win.name = name;
-                      win.patterns = [pattern];
-                      return tabs.remove(win.tabs[win.tabs.length - 1].id, function() {
-                        return _this.finish();
-                      });
-                    };
-                  })(this));
-                });
-              } else {
-                return _this.finish("No tabs found matching " + pattern + ".");
-              }
-            };
-          })(this));
+                } else if (matchingTabsIds.length > 1) {
+                  return withNewWindow(name, function(win) {
+                    return tabs.move(matchingTabsIds, {
+                      windowId: win.id,
+                      index: -1
+                    }, (function(_this) {
+                      return function() {
+                        win.name = name;
+                        win.patterns = [pattern];
+                        return tabs.remove(win.tabs[win.tabs.length - 1].id, function() {
+                          return _this.finish();
+                        });
+                      };
+                    })(this));
+                  });
+                } else {
+                  return _this.finish("No tabs found matching %p.", pattern);
+                }
+              };
+            })(this));
+          }
         }
       },
       f: {
@@ -1001,23 +1200,32 @@
       find: {
         desc: 'Go to the first tab found matching a pattern.',
         type: 'Changing focus',
-        examples: {
-          'ts find google.com': 'Focus the first tab found to match /google.com/.'
-        },
+        examples: "ts find google.com': 'Focus the first tab found to match 'google.com'.",
         help: function(pattern) {
+          if (pattern == null) {
+            return this.finish('Enter a pattern to find a tab.');
+          }
           return withTabsMatching(pattern, (function(_this) {
             return function(matchingTabs) {
               if (matchingTabs.length > 1) {
-                return _this.finish('Press enter to focus the first of %s tabs matching /%s/.', matchingTabs.length, pattern);
+                return _this.finish("Press enter to focus the first of %s tabs matching %p.", matchingTabs.length, pattern);
               } else if (matchingTabs.length === 1) {
-                return _this.finish('Press enter to focus the tab matching /%s/.', pattern);
+                return tabs.get(matchingTabs[0], function(tab) {
+                  return windows.get(tab.windowId, {}, function(win) {
+                    var ref;
+                    return _this.finish('Press enter to focus the tab matching %p in window %w.', pattern, (ref = win.name) != null ? ref : win.id);
+                  });
+                });
               } else {
-                return _this.finish('No matching tabs found for /%s/.', pattern);
+                return _this.finish('No matching tabs found for %p.', pattern);
               }
             };
           })(this));
         },
         run: function(pattern) {
+          if (pattern == null) {
+            return this.finish('Enter a pattern to find a tab.');
+          }
           return withTabsMatching(pattern, (function(_this) {
             return function(matchingTabs) {
               if (matchingTabs.length >= 1) {
@@ -1026,12 +1234,12 @@
                     focused: true
                   }, function() {
                     return tabs.update(tab.id, {
-                      highlighted: true
+                      active: true
                     }, function() {});
                   });
                 });
               } else {
-                return _this.finish("No matching tabs found for /" + pattern + "/.");
+                return _this.finish("No matching tabs found for %p.", pattern);
               }
             };
           })(this));
@@ -1094,8 +1302,17 @@
                 }
               }
               return withTabsMatching(patterns, function(matchingTabs) {
+                var pat;
                 if (matchingTabs.length < 1) {
-                  return this.finish(noneMsg, patterns.length, (patterns.length === 1 ? '' : 's'), mkString(patterns, '\n'));
+                  return this.finish(noneMsg, patterns.length, (patterns.length === 1 ? '' : 's'), ((function() {
+                    var j, len, results1;
+                    results1 = [];
+                    for (j = 0, len = patterns.length; j < len; j++) {
+                      pat = patterns[j];
+                      results1.push(makeText("%p", pat));
+                    }
+                    return results1;
+                  })()).join("\n"));
                 } else {
                   return tabs.move({
                     windowId: win.id,
@@ -1126,7 +1343,7 @@
             return this.finish('Enter a window name to send this tab there.');
           } else {
             win = getDefinition(name);
-            return this.finish("Press enter to send this tab to %swindow '%s'.", (win != null ? '' : 'new '), name);
+            return this.finish("Press enter to send this tab to %swindow %w.", (win != null ? '' : 'new '), name);
           }
         },
         run: function(name) {
@@ -1173,7 +1390,7 @@
             return this.finish('Enter a window name followed by a URL to open the URL there.');
           } else {
             win = getDefinition(name);
-            return this.finish("Press enter to open this URL in %swindow '%s'.", (win ? '' : 'new '), name);
+            return this.finish("Press enter to open this URL in %swindow %w.", (win ? '' : 'new '), name);
           }
         },
         run: function(name, url) {
@@ -1234,7 +1451,7 @@
                 if (num < 1) {
                   return _this.finish('No tabs found matching the given pattern(s).');
                 } else {
-                  return _this.finish("Press enter to extract %s tab(s) matching /%s/%s into a new window named '%s'.", num, patterns[0], (patterns.length > 1 ? ', ...' : ''), name);
+                  return _this.finish("Press enter to extract %s tab(s) matching %p%s into a new window named %w.", num, patterns[0], (patterns.length > 1 ? ', ...' : ''), name);
                 }
               };
             })(this));
@@ -1305,9 +1522,9 @@
             return withWindowForPattern(pattern, (function(_this) {
               return function(currWin) {
                 if (currWin != null) {
-                  return _this.finish("Press enter to reassign /%s/ to this window from window '%s'.", pattern, currWin.name);
+                  return _this.finish("Press enter to reassign %p to this window from window %w.", pattern, currWin.name);
                 } else {
-                  return _this.finish('Press enter to assign /%s/ to this window.', pattern);
+                  return _this.finish('Press enter to assign %p to this window.', pattern);
                 }
               };
             })(this));
@@ -1323,15 +1540,15 @@
                 msg = void 0;
                 if (currWin != null) {
                   if (unassignPattern(pattern, currWin)) {
-                    msg = makeText('Pattern /%s/ was moved from window \'%s\' to window \'%s\'.', pattern, currWin.name, window.name);
+                    msg = makeText('Pattern %p was moved from window %w to window %w.', pattern, currWin.name, window.name);
                   } else {
-                    this.finish('Could not unassign pattern %s from window %s.', pattern, currWin.name);
+                    this.finish('Could not unassign pattern %p from window %w.', pattern, currWin.name);
                   }
                 }
                 if (assignPattern(pattern, window)) {
                   return this.finish(msg);
                 } else {
-                  return this.finish('Could not assign pattern %s to window %s.', pattern, window.name);
+                  return this.finish('Could not assign pattern %p to window %w.', pattern, window.name);
                 }
               });
             });
@@ -1348,16 +1565,16 @@
           if (pattern == null) {
             return this.finish('Enter a pattern to remove from this window.');
           } else if (!containsPattern(pattern, window)) {
-            return this.finish('Pattern /%s/ is not assigned to this window.', pattern);
+            return this.finish('Pattern %p is not assigned to this window.', pattern);
           } else {
-            return this.finish('Press enter to remove /%s/ from this window.', pattern);
+            return this.finish('Press enter to remove %p from this window.', pattern);
           }
         },
         run: function(pattern) {
           if (pattern == null) {
             return this.finish('No pattern provided.');
           } else if (!containsPattern(pattern, window)) {
-            return this.finish('Pattern /%s/ is not assigned to this window.');
+            return this.finish('Pattern %p is not assigned to this window.');
           } else {
             return withCurrentWindow((function(_this) {
               return function(window) {
@@ -1383,7 +1600,7 @@
         run: function() {
           return withCurrentWindow((function(_this) {
             return function(window) {
-              return _this.finish("Patterns assigned to window '%s':\n\n%s", window.name, listPatterns(window));
+              return _this.finish("Patterns assigned to window %w:\n\n%s", window.name, listPatterns(window));
             };
           })(this));
         }
