@@ -6,6 +6,7 @@
   "description": "Group tabs into windows by URL pattern.",
   "manifest_version": 2,
   "minimum_chrome_version": "9.0.0.0",
+  "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",
   "name": "Tab Shepherd",
   "permissions": [ "storage", "tabs" ],
   "omnibox": {

@@ -13,17 +13,17 @@ inputChanged = null
 inputEntered = null
 windowRemovedListener = null
 activeTabId = null
-windows = null
+openWindows = null
 focusedWindowId = 1
 focusedTabIds = {}
-tabs = null
+openTabs = null
 defs = null
 omniboxText = null
 alertText = null
 ts = null
 chrome = null
 
-tabValues = -> _.values(tabs)
+tabValues = -> _.values(openTabs)
 withSavedDef = (name, callback) ->
   chrome.storage.local.get 'windowDefs', (data) ->
     callback data['windowDefs'][name]
@@ -33,11 +33,11 @@ alert = (text) -> alertText = text
 randomId = -> Math.floor(Math.random() * 10000)
 createTab = (id, windowId, url) ->
   tab = id: id, windowId: windowId, url: url
-  tabs[id] = tab
+  openTabs[id] = tab
   tab
 
 reset = ->
-  tabs =
+  openTabs =
     3:
       id: 3
       windowId: 1
@@ -58,24 +58,27 @@ reset = ->
       windowId: 2
       url: 'http://salty.com'
       title: ''
-  defs = {
+  defs =
+#    hello:
+#      id: 1
+#      name: 'hello'
+#      patterns: ['yellow', 'white']
+#      activeUrl: 'http://sweetthings.com'
     goodbye:
+      id: 2
       name: 'goodbye'
       patterns: ['blue']
       activeUrl: 'http://sourthings.com'
-  }
   focusedWindowId = 1
-  windows =
+  openWindows =
     1:
       id: 1
-      tabs: [ tabs[3], tabs[4] ]
+      tabs: [ openTabs[3], openTabs[4] ]
       activeTabId: 4
-      name: 'hello'
     2:
       id: 2
-      tabs: [ tabs[5], tabs[6] ]
+      tabs: [ openTabs[5], openTabs[6] ]
       activeTabId: 5
-      # name missing on purpose
   chrome =
     runtime: lastError: null
     storage: local:
@@ -92,19 +95,19 @@ reset = ->
     windows:
       onRemoved: addListener: (listener) -> windowRemovedListener = listener
       getCurrent: (o, cb) ->
-        throw 'No current window defined' if !focusedWindowId? or !windows[focusedWindowId]?
-        cb windows[focusedWindowId]
+        throw 'No current window defined' if !focusedWindowId? or !openWindows[focusedWindowId]?
+        cb currentWindow()
       create: (ops, cb) ->
         winId = randomId()
         win = id: winId, tabs: [ ]
         tab = createTab randomId(), winId, ''
         win.tabs.push tab
         win.activeTabId = tab.id
-        windows[winId] = win
+        openWindows[winId] = win
         focusedWindowId = winId
         cb win
-      get: (id, ops, cb) -> cb windows[id]
-      getAll: (ops, cb) -> cb(v for own k, v of windows)
+      get: (id, ops, cb) -> cb openWindows[id]
+      getAll: (ops, cb) -> cb(v for own k, v of openWindows)
       update: (winId, ops, cb) ->
         focusedWindowId = winId if ops?.focused
         cb()
@@ -112,42 +115,42 @@ reset = ->
       create: (winId, url, cb) ->
         tabId = randomId()
         tab = createTab tabId, winId, url
-        windows[winId].tabs.push tab
+        openWindows[winId].tabs.push tab
         cb tab
       query: (ops, cb) ->
         fits = (t) ->
           res = true
           res = res && t.windowId == ops.windowId if ops.windowId?
-          res = res && windows[t.windowId].activeTabId == t.id if ops.active
+          res = res && openWindows[t.windowId].activeTabId == t.id if ops.active
           res
-        cb(tab for own id, tab of tabs when fits(tab))
+        cb(tab for own id, tab of openTabs when fits(tab))
       get: (id, cb) ->
-        cb tabs[id]
+        cb openTabs[id]
       getAllInWindow: (winId, cb) ->
         cb(_.filter tabValues(), (t) -> t.windowId == winId)
       update: (id, ops, cb) ->
-        tab = tabs[id]
+        tab = openTabs[id]
         for own k, v of ops
           if k == 'active'
-            windows[tab.windowId].activeTabId = tab.id
+            openWindows[tab.windowId].activeTabId = tab.id
           else
             tab[k] = v
         cb tab
       move: (ids, ops, cb) ->
-        newWin = windows[ops.windowId]
+        newWin = openWindows[ops.windowId]
         for id in ids
-          win = windows[tab.windowId]
-          idx = _.findIndexOf win.tabs, (t) -> t.id == id
+          tab = openTabs[id]
+          win = openWindows[tab.windowId]
+          idx = _.findIndex win.tabs, (t) -> t.id == id
           win.tabs.splice idx, 1
-          tab = tabs[id]
           newWin.tabs.push(tab)
-        cb()
+        cb() if cb?
       remove: (id, cb) ->
-        tab = tabs[id]
-        win = windows[tab.windowId]
-        idx = _.findIndexOf win.tabs, (t) -> t.id == id
+        tab = openTabs[id]
+        win = openWindows[tab.windowId]
+        idx = _.findIndex win.tabs, (t) -> t.id == id
         win.tabs.splice idx, 1
-        delete tabs[id]
+        delete openTabs[id]
         cb()
   ts = new TabShepherd chrome, alert
 #  console.log "Windows:"
@@ -155,6 +158,8 @@ reset = ->
 
 changeInput = (input) -> inputChanged input, suggest
 enterInput = (input) -> inputEntered input
+focusWindow = (id) -> focusedWindowId = id
+currentWindow = -> openWindows[focusedWindowId]
 
 assertOmni = (text) -> assertText text, omniboxText
 assertAlert = (text) -> assertText text, alertText
@@ -184,22 +189,26 @@ expectNoResponseFor = (text) ->
   assertNoOutput()
 assertFocus = (winId, tabId) ->
   assert.fail("Expected window #{winId} to be focused, was window #{focusedWindowId}") if winId != focusedWindowId
-  assert.fail("Excpected tab #{tabId} to be focused, was tab #{windows[focusedWindowId].activeTabId}") if tabId != windows[focusedWindowId].activeTabId
+  assert.fail("Excpected tab #{tabId} to be focused, was tab #{openWindows[focusedWindowId].activeTabId}") if tabId != openWindows[focusedWindowId].activeTabId
 
-context "Commands",
+context "TabShepherd",
   should "initialize", ->
+    assert.equal 'function', typeof TabShepherd
+
     reset()
 
-    assert.equal 'function', typeof TabShepherd
     assert.equal 'object', typeof ts
-    assert.isTrue inputChanged?
-    assert.isTrue inputEntered?
+    assert.equal 'blue', ts.getDefinition('goodbye').patterns[0]
+    assert.fail("Input not changed") if !inputChanged?
+    assert.fail("Input not entered") if !inputEntered?
 
     # Check that loaded definition got attached
-    win2 = windows[2]
-    assert.equal 'goodbye', win2.name
-    def = ts.getDefinition(win2.name)
-    assert.isTrue def?
+    win2 = openWindows[2]
+    assert.equal 'goodbye', ts.getName(win2)
+    def = ts.getDefinition('goodbye')
+    assert.fail("No definition for goodbye") if !def?
+    def = ts.getDefinition(win2)
+    assert.fail("No definition for window #{win2.id}") if !def?
     assert.equal 'blue', def.patterns[0]
 
 context "makeText",
@@ -233,14 +242,14 @@ context "name",
     expectSuggestionFor 'name foo', 'Press enter to name this window "foo".'
 
     expectNoResponseFor 'name foo'
-    assert.equal 'foo', windows[focusedWindowId].name
+    assert.equal 'foo', ts.getName(openWindows[focusedWindowId])
     assert.isTrue defs['foo']?
     assert.equal 'foo', defs['foo'].name
 
     expectSuggestionFor 'name ', 'Enter a new name for this window (currently named "foo").'
     expectSuggestionFor 'name blah', 'Press enter to change window name from "foo" to "blah".'
     enterInput 'name blah'
-    assert.equal 'blah', windows[focusedWindowId].name
+    assert.equal 'blah', ts.getName(openWindows[focusedWindowId])
     assert.isTrue defs['blah']?
     assert.isFalse defs['foo']?
     assert.equal 'blah', defs['blah'].name
@@ -258,7 +267,6 @@ context "defs",
 context "new",
   should "handle command", ->
     reset()
-    expectSuggestionFor 'name foo', 'Press enter to name this window "foo".'
 
     expectSuggestionFor 'new', 'Enter a name for the new window.'
     expectSuggestionFor 'new yes', 'Press enter to open a new window and name it "yes".'
@@ -266,16 +274,18 @@ context "new",
     expectSuggestionFor 'new yes hello|goodbye', 'Press enter to open a new window named "yes" and assign it the pattern /hello|goodbye/.'
 
     expectNoResponseFor 'new yes okay'
-    assert.equal 'yes', windows[focusedWindowId].name
+    assert.equal 'yes', ts.getName(openWindows[focusedWindowId])
     withSavedDef 'yes', (def) ->
       assert.isTrue def?
       assert.equal 'yes', def.name
       assert.equal 'okay', def.patterns[0]
 
     expectSuggestionFor 'new yes', 'There is already a window named "yes".'
+
 context "find",
   should "handle command", ->
     reset()
+
 
     expectSuggestionFor 'find', 'Enter a pattern to find a tab.'
     expectResponseFor 'find', 'Enter a pattern to find a tab.'
@@ -284,13 +294,17 @@ context "find",
     expectNoResponseFor 'find things'
     assertFocus 1, 3
 
-    expectSuggestionFor 'find really', "Press enter to focus the tab matching 'really' in window \"hello\"."
+    expectSuggestionFor 'find really', "Press enter to focus the tab matching 'really'."
     expectNoResponseFor 'find really'
     assertFocus 1, 4
 
     expectSuggestionFor 'find sweet|bitter', "Press enter to focus the first of 2 tabs matching /sweet|bitter/."
     expectNoResponseFor 'find sweet|bitter'
     assertFocus 1, 3
+
+    expectSuggestionFor 'find salty', "Press enter to focus the tab matching 'salty' in window \"goodbye\"."
+    expectNoResponseFor 'find salty'
+    assertFocus 2, 6
 
     expectSuggestionFor 'find s[aeiou]{2}r', "Press enter to focus the tab matching /s[aeiou]{2}r/ in window \"goodbye\"."
     expectNoResponseFor 'find s[aeiou]{2}r'
@@ -304,7 +318,33 @@ context "find",
     expectResponseFor 'find um.*mi', "No matching tabs found for /um.*mi/."
     assertFocus 2, 5
 
-    assert.equal 2, Object.keys(windows).length
+    assert.equal 2, Object.keys(openWindows).length
+
+context 'bring',
+  should 'handle command', ->
+    reset()
+
+    focusWindow 1
+    assert.equal 2, currentWindow().tabs.length
+    expectSuggestionFor 'bring', 'Enter one or more patterns. No assigned patterns exist for this window.'
+    expectSuggestionFor 'bring umami', "No tabs found matching 1 given pattern."
+    expectSuggestionFor 'bring umami poo', "No tabs found matching 2 given patterns."
+    expectSuggestionFor 'bring sour', "Press enter to bring 1 tab matching 1 pattern to this window (unnamed)."
+    expectSuggestionFor 'bring a', "Press enter to bring 2 tabs matching 1 pattern to this window (unnamed)."
+    expectSuggestionFor 'bring sour really', "Press enter to bring 2 tabs matching 2 patterns to this window (unnamed)."
+
+    focusWindow 2
+    assert.equal 2, currentWindow().tabs.length
+    expectSuggestionFor 'bring sour', 'Press enter to bring 1 tab matching 1 pattern to this window "goodbye".'
+    expectSuggestionFor 'bring a', 'Press enter to bring 2 tabs matching 1 pattern to this window "goodbye".'
+    expectSuggestionFor 'bring sour really', 'Press enter to bring 2 tabs matching 2 patterns to this window "goodbye".'
+    expectResponseFor 'bring xxxx (xxxx)+', "No tabs found matching 2 given patterns:\n\n'xxxx'\n/(xxxx)+/"
+    assert.equal 2, currentWindow().tabs.length
+
+    expectNoResponseFor 'bring sour really'
+    assert.equal 3, currentWindow().tabs.length
+    focusWindow 1
+    assert.equal 1, currentWindow().tabs.length
 
 
 Tests.run()
