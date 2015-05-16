@@ -145,6 +145,8 @@ class TabShepherd
 
   storeDefinitions: -> storeDefinitions()
   storeDefinitions = ->
+#    console.log 'Storing:'
+#    console.dir definitions
     storage.set windowDefs: definitions, ->
       if runtime.lastError
         alert runtime.lastError
@@ -157,6 +159,7 @@ class TabShepherd
   setName: (win, name) -> setName win, name
   setName = (win, name) ->
     currName = getName(win)
+    return if name == currName
     if currName? and definitions[currName]?
       if currName != name
         definitions[name] = definitions[currName]
@@ -708,7 +711,7 @@ class TabShepherd
               windowId: existingWin.id
               index: -1
           else
-            withNewWindow name, (win) ->
+            withNewWindow name, (win) =>
               tabs.move tab.id, windowId: win.id, index: -1
               tabs.remove win.tabs[win.tabs.length - 1].id, => @finish()
     o:

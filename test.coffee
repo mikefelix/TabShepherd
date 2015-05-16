@@ -12,7 +12,6 @@ global.extend = (hash1, hash2) ->
 inputChanged = null
 inputEntered = null
 windowRemovedListener = null
-activeTabId = null
 openWindows = null
 focusedWindowId = 1
 focusedTabIds = {}
@@ -22,15 +21,18 @@ omniboxText = null
 alertText = null
 ts = null
 chrome = null
+idCount = 9
 
-tabValues = -> _.values(openTabs)
 withSavedDef = (name, callback) ->
   chrome.storage.local.get 'windowDefs', (data) ->
     callback data['windowDefs'][name]
 
 suggest = (text) -> omniboxText = text[0].description
 alert = (text) -> alertText = text
-randomId = -> Math.floor(Math.random() * 10000)
+nextId = ->
+  id = idCount
+  idCount += 1
+  id
 createTab = (id, windowId, url) ->
   tab = id: id, windowId: windowId, url: url
   openTabs[id] = tab
@@ -98,9 +100,9 @@ reset = ->
         throw 'No current window defined' if !focusedWindowId? or !openWindows[focusedWindowId]?
         cb currentWindow()
       create: (ops, cb) ->
-        winId = randomId()
+        winId = nextId()
         win = id: winId, tabs: [ ]
-        tab = createTab randomId(), winId, ''
+        tab = createTab nextId(), winId, ''
         win.tabs.push tab
         win.activeTabId = tab.id
         openWindows[winId] = win
@@ -113,7 +115,7 @@ reset = ->
         cb()
     tabs:
       create: (winId, url, cb) ->
-        tabId = randomId()
+        tabId = nextId()
         tab = createTab tabId, winId, url
         openWindows[winId].tabs.push tab
         cb tab
@@ -127,7 +129,7 @@ reset = ->
       get: (id, cb) ->
         cb openTabs[id]
       getAllInWindow: (winId, cb) ->
-        cb(_.filter tabValues(), (t) -> t.windowId == winId)
+        cb(_.filter _.values(openTabs), (t) -> t.windowId == winId)
       update: (id, ops, cb) ->
         tab = openTabs[id]
         for own k, v of ops
@@ -138,13 +140,15 @@ reset = ->
         cb tab
       move: (ids, ops, cb) ->
         newWin = openWindows[ops.windowId]
+        ids = [ids] if typeof ids == 'number'
         for id in ids
           tab = openTabs[id]
           win = openWindows[tab.windowId]
           idx = _.findIndex win.tabs, (t) -> t.id == id
           win.tabs.splice idx, 1
           newWin.tabs.push(tab)
-        cb() if cb?
+          openTabs[id].windowId = newWin.id
+          cb() if cb?
       remove: (id, cb) ->
         tab = openTabs[id]
         win = openWindows[tab.windowId]
@@ -153,12 +157,11 @@ reset = ->
         delete openTabs[id]
         cb()
   ts = new TabShepherd chrome, alert
-#  console.log "Windows:"
-#  console.dir windows
 
 changeInput = (input) -> inputChanged input, suggest
 enterInput = (input) -> inputEntered input
 focusWindow = (id) -> focusedWindowId = id
+focusTab = (id) -> currentWindow().activeTabId = id
 currentWindow = -> openWindows[focusedWindowId]
 
 assertOmni = (text) -> assertText text, omniboxText
@@ -286,7 +289,6 @@ context "find",
   should "handle command", ->
     reset()
 
-
     expectSuggestionFor 'find', 'Enter a pattern to find a tab.'
     expectResponseFor 'find', 'Enter a pattern to find a tab.'
 
@@ -344,6 +346,31 @@ context 'bring',
     expectNoResponseFor 'bring sour really'
     assert.equal 3, currentWindow().tabs.length
     focusWindow 1
+    assert.equal 1, currentWindow().tabs.length
+
+context 'send',
+  should 'send to existing window', ->
+    reset()
+    focusWindow 1
+    focusTab 3
+    assert.equal 2, currentWindow().tabs.length
+    expectSuggestionFor 'send', 'Enter a window name to send this tab there.'
+    expectSuggestionFor 'send goodbye', "Press enter to send this tab to window \"goodbye\"."
+    expectNoResponseFor 'send goodbye'
+    assert.equal 1, currentWindow().tabs.length
+    focusWindow 2
+    assert.equal 3, currentWindow().tabs.length
+
+context 'send',
+  should 'send to new window', ->
+    reset()
+    focusTab 3
+    assert.equal 2, currentWindow().tabs.length
+    expectSuggestionFor 'send whatever', "Press enter to send this tab to new window \"whatever\"."
+    expectNoResponseFor 'send whatever'
+    assert.equal 1, currentWindow().tabs.length
+    focusWindow 9
+    assert.equal 'whatever', ts.getName(currentWindow())
     assert.equal 1, currentWindow().tabs.length
 
 

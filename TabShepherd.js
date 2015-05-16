@@ -284,6 +284,9 @@
     setName = function(win, name) {
       var currName;
       currName = getName(win);
+      if (name === currName) {
+        return;
+      }
       if ((currName != null) && (definitions[currName] != null)) {
         if (currName !== name) {
           definitions[name] = definitions[currName];
@@ -1254,17 +1257,17 @@
           'ts bring': 'Bring tabs whose URLs match all this window\'s assigned patterns to this window.'
         },
         help: function() {
-          var patterns;
+          var patterns, ref;
           patterns = 1 <= arguments.length ? slice.call(arguments, 0) : [];
+          if (!(patterns != null ? patterns.length : void 0) && !(typeof def !== "undefined" && def !== null ? (ref = def.patterns) != null ? ref.length : void 0 : void 0)) {
+            return this.finish('Enter one or more patterns. No assigned patterns exist for this window.');
+          }
           return withCurrentWindow((function(_this) {
             return function(win) {
               var def, usingAssigned;
               usingAssigned = patterns.length === 0;
               if (usingAssigned) {
                 def = getDefinition(win);
-                if ((def == null) || (def.patterns == null) || def.patterns.length === 0) {
-                  return _this.finish('Enter one or more patterns. No assigned patterns exist for this window.');
-                }
                 patterns = def.patterns;
               }
               return withTabsMatching(patterns, function(matchingTabs) {
@@ -1356,11 +1359,9 @@
                     windowId: win.id,
                     index: -1
                   });
-                  return tabs.remove(win.tabs[win.tabs.length - 1].id, (function(_this) {
-                    return function() {
-                      return _this.finish();
-                    };
-                  })(this));
+                  return tabs.remove(win.tabs[win.tabs.length - 1].id, function() {
+                    return _this.finish();
+                  });
                 });
               }
             };

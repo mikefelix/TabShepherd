@@ -34,7 +34,7 @@
   <body ng-app="TabShepPopup">
     <div id="status" ng-controller="PopupController">
         <div id="definition">
-            This window is named: <input type="text" id="name" style="width:100px" ng-model="name"/>
+            {{test}} This window is named: <input type="text" id="name" style="width:100px" ng-model="name"/>
             <input type="button" id="setName" value="Set" ng-click="setName()" ng-disabled="def.name == name"/>
         </div>
         <div id="patternOuter">

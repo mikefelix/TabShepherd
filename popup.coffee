@@ -3,6 +3,7 @@ popup = angular.module 'TabShepPopup', []
 
 popup.controller 'PopupController', ($scope) ->
   ts.withCurrentWindow (win) ->
+    $scope.test = 'yes'
     $scope.name = ts.getName(win) ? 'none'
     $scope.def = ts.getDefinition $scope.name if $scope.name
     $scope.def.patterns = [] if !$scope.def.patterns?
