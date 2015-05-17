@@ -455,12 +455,22 @@
     return assert.equal('blah', defs['blah'].name);
   }));
 
-  context("defs", should("handle command", function() {
+  context("defs/clear", should("list and clear definitions", function() {
+    reset();
+    expectResponseFor('clear *', 'Cleared all window definitions.');
+    assert.equal(0, Object.keys(defs).length);
     reset();
     expectSuggestionFor('defs', 'Press enter to list the window definitions.');
     expectResponseFor('defs', "Named windows:\n\ngoodbye (window 2)");
     enterInput('name hi');
-    return expectResponseFor('defs', "Named windows:\n\ngoodbye (window 2)\nhi (window 1)");
+    expectResponseFor('defs', "Named windows:\n\ngoodbye (window 2)\nhi (window 1)");
+    expectSuggestionFor('clear blah', 'Window definition "blah" not found.');
+    expectSuggestionFor('clear goodbye', 'Press enter to clear window definition "goodbye". Warning: currently assigned to a window.');
+    assert.equal(2, Object.keys(defs).length);
+    assert.equal('goodbye', defs['goodbye'].name);
+    expectResponseFor('clear goodbye', 'Cleared window definition "goodbye" and removed it from a window.');
+    assert.equal(1, Object.keys(defs).length);
+    return assert.equal(void 0, defs['goodbye']);
   }));
 
   context("new", should("handle command", function() {

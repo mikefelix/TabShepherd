@@ -99,10 +99,10 @@
 
     getArgs = function(text) {
       text = text.trim();
-      if (!/^\w+\s+\w+/.test(text)) {
+      if (!/^\S+\s+\S+/.test(text)) {
         return [];
       }
-      return text.replace(/^\w+\s+/, '').split(/\s+/);
+      return text.replace(/^\S+\s+/, '').split(/\s+/);
     };
 
     TabShepherd.prototype.makeText = function() {
@@ -931,46 +931,56 @@
         desc: 'Clear window definitions',
         type: 'Managing window definitions',
         examples: {
-          'ts clear recipes': 'Remove the window definition \'recipes\'. No tabs are affected.',
-          'ts clear all data': 'Remove all window definitions from storage. No tabs are affected.'
+          'ts clear recipes': "Remove the window definition 'recipes'. No tabs are affected.",
+          'ts clear *': "Remove all window definitions from storage. No tabs are affected."
         },
         help: function(name) {
-          if (name === 'all data') {
-            return finish('Press enter to clear all saved window definitions.');
+          if (name == null) {
+            return this.finish('Enter a window definition name');
+          }
+          if (name === '*') {
+            return this.finish('Press enter to clear all saved window definitions.');
           }
           return withWindowNamed(name, (function(_this) {
             return function(win) {
               if (win != null) {
-                return _this.finish('Press enter to clear window definition \'%s\'. Warning: currently assigned to a window.', name);
+                return _this.finish("Press enter to clear window definition %w. Warning: currently assigned to a window.", name);
               } else if (getDefinition(name) != null) {
-                return _this.finish('Press enter to clear window definition \'%s\', not currently assigned to a window.', name);
+                return _this.finish("Press enter to clear window definition %w, not currently assigned to a window.", name);
               } else {
-                return _this.finish('Window definition \'%s\' not found.', name);
+                return _this.finish("Window definition %w not found.", name);
               }
             };
           })(this));
         },
         run: function(name) {
-          if (name === 'all data') {
-            storage.remove('windows', (function(_this) {
-              return function() {
-                return _this.finish('Cleared all window data.');
+          var def;
+          console.dir(definitions);
+          if (name == null) {
+            return this.finish('Enter a window definition name');
+          }
+          if (name === '*') {
+            for (name in definitions) {
+              if (!hasProp.call(definitions, name)) continue;
+              def = definitions[name];
+              deleteDefinition(name);
+            }
+            return this.finish('Cleared all window definitions.');
+          } else {
+            return withWindowNamed(name, (function(_this) {
+              return function(win) {
+                if (win != null) {
+                  deleteDefinition(name);
+                  return _this.finish("Cleared window definition %w and removed it from a window.", name);
+                } else if (getDefinition(name) != null) {
+                  deleteDefinition(name);
+                  return _this.finish("Cleared window definition %w.", name);
+                } else {
+                  return _this.finish("Window definition %w not found.", name);
+                }
               };
             })(this));
           }
-          return withWindowNamed(name, (function(_this) {
-            return function(win) {
-              if (win != null) {
-                deleteDefinition(name);
-                return _this.finish('Cleared window definition \'%s\' and removed it from a window.', name);
-              } else if (getDefinition(name) != null) {
-                deleteDefinition(name);
-                return _this.finish('Cleared window definition \'%s\'.', name);
-              } else {
-                return _this.finish('Window definition \'%s\' not found.', name);
-              }
-            };
-          })(this));
         }
       },
       clean: {

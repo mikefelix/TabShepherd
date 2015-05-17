@@ -63,8 +63,8 @@ class TabShepherd
 
   getArgs = (text) ->
     text = text.trim()
-    return [] if !/^\w+\s+\w+/.test(text)
-    text.replace(/^\w+\s+/, '').split /\s+/
+    return [] if !/^\S+\s+\S+/.test(text)
+    text.replace(/^\S+\s+/, '').split /\s+/
 
   makeText: -> makeText (a for a in arguments)...
   makeText = ->
@@ -488,30 +488,34 @@ class TabShepherd
       desc: 'Clear window definitions'
       type: 'Managing window definitions'
       examples:
-        'ts clear recipes': 'Remove the window definition \'recipes\'. No tabs are affected.'
-        'ts clear all data': 'Remove all window definitions from storage. No tabs are affected.'
+        'ts clear recipes': "Remove the window definition 'recipes'. No tabs are affected."
+        'ts clear *': "Remove all window definitions from storage. No tabs are affected."
       help: (name) ->
-        return finish('Press enter to clear all saved window definitions.') if name == 'all data'
+        return @finish('Enter a window definition name') if !name?
+        return @finish('Press enter to clear all saved window definitions.') if name == '*'
         withWindowNamed name, (win) =>
           if win?
-            @finish 'Press enter to clear window definition \'%s\'. Warning: currently assigned to a window.', name
+            @finish "Press enter to clear window definition %w. Warning: currently assigned to a window.", name
           else if getDefinition(name)?
-            @finish 'Press enter to clear window definition \'%s\', not currently assigned to a window.', name
+            @finish "Press enter to clear window definition %w, not currently assigned to a window.", name
           else
-            @finish 'Window definition \'%s\' not found.', name
+            @finish "Window definition %w not found.", name
       run: (name) ->
-        if name == 'all data'
-          storage.remove 'windows', =>
-            @finish 'Cleared all window data.'
-        withWindowNamed name, (win) =>
-          if win?
-            deleteDefinition name
-            @finish 'Cleared window definition \'%s\' and removed it from a window.', name
-          else if getDefinition(name)?
-            deleteDefinition name
-            @finish 'Cleared window definition \'%s\'.', name
-          else
-            @finish 'Window definition \'%s\' not found.', name
+        console.dir definitions
+        return @finish('Enter a window definition name') if !name?
+        if name == '*'
+          deleteDefinition(name) for own name, def of definitions
+          @finish 'Cleared all window definitions.'
+        else
+          withWindowNamed name, (win) =>
+            if win?
+              deleteDefinition name
+              @finish "Cleared window definition %w and removed it from a window.", name
+            else if getDefinition(name)?
+              deleteDefinition name
+              @finish "Cleared window definition %w.", name
+            else
+              @finish "Window definition %w not found.", name
 
     clean:
       desc: 'Clean window data, removing definitions for which no window is present'
