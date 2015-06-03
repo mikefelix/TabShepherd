@@ -855,6 +855,7 @@
           return this.finish('Press enter to list the window definitions.');
         },
         run: function() {
+          console.dir(definitions);
           return withEachDefinition({
             run: (function(_this) {
               return function(def, win) {
@@ -955,7 +956,6 @@
         },
         run: function(name) {
           var def;
-          console.dir(definitions);
           if (name == null) {
             return this.finish('Enter a window definition name');
           }
@@ -1452,9 +1452,11 @@
                 var num;
                 num = matchingTabs.length;
                 if (num < 1) {
-                  return _this.finish('No tabs found matching the given pattern(s).');
+                  return _this.finish('No tabs found matching %p. Enter more args to use it as a name.', name);
+                } else if (patterns.length > 1) {
+                  return _this.finish("Press enter to extract %s matching %s patterns into a new window named %w.", plur("tab", num), patterns.length, name);
                 } else {
-                  return _this.finish("Press enter to extract %s tab(s) matching %p%s into a new window named %w.", num, patterns[0], (patterns.length > 1 ? ', ...' : ''), name);
+                  return _this.finish("Press enter to extract %s matching %p into a new window named %w.", plur("tab", num), patterns[0], name);
                 }
               };
             })(this));
@@ -1476,15 +1478,13 @@
                     return tabs.move(matchingTabs, {
                       windowId: win.id,
                       index: -1
-                    }, (function(_this) {
-                      return function() {
-                        setName(win, name);
-                        win.patterns = patterns;
-                        return tabs.remove(win.tabs[win.tabs.length - 1].id, function() {
-                          return _this.finish();
-                        });
-                      };
-                    })(this));
+                    }, function() {
+                      setName(win, name);
+                      win.patterns = patterns;
+                      return tabs.remove(win.tabs[win.tabs.length - 1].id, function() {
+                        return _this.finish();
+                      });
+                    });
                   });
                 }
               };

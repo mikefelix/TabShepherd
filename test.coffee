@@ -22,6 +22,7 @@ alertText = null
 ts = null
 chrome = null
 idCount = 9
+currentTest = null
 
 withSavedDef = (name, callback) ->
   chrome.storage.local.get 'windowDefs', (data) ->
@@ -37,8 +38,12 @@ createTab = (id, windowId, url) ->
   tab = id: id, windowId: windowId, url: url
   openTabs[id] = tab
   tab
+log = (str) ->
+  console.log "|#{currentTest}|  #{str}"
 
-reset = ->
+reset = (testName) ->
+  currentTest = testName ? '?'
+  idCount = 9
   openTabs =
     3:
       id: 3
@@ -148,7 +153,7 @@ reset = ->
           win.tabs.splice idx, 1
           newWin.tabs.push(tab)
           openTabs[id].windowId = newWin.id
-          cb() if cb?
+        cb() if cb?
       remove: (id, cb) ->
         tab = openTabs[id]
         win = openWindows[tab.windowId]
@@ -198,7 +203,7 @@ context "TabShepherd",
   should "initialize", ->
     assert.equal 'function', typeof TabShepherd
 
-    reset()
+    reset('init')
 
     assert.equal 'object', typeof ts
     assert.equal 'blue', ts.getDefinition('goodbye').patterns[0]
@@ -216,7 +221,7 @@ context "TabShepherd",
 
 context "makeText",
   should "assemble strings", ->
-    reset()
+    reset('makeText')
 
     assert.equal 'a string', ts.makeText('a string')
     assert.equal "window \"2\"'s color is bluegreen", ts.makeText("window %w's color is %s", 2, 'bluegreen')
@@ -238,7 +243,7 @@ context "Commands",
 
 context "name",
   should "handle command", ->
-    reset()
+    reset('name')
 
     expectSuggestionFor 'name', 'Enter a name for this window.'
     expectResponseFor 'name', 'No name provided.'
@@ -259,11 +264,11 @@ context "name",
 
 context "defs/clear",
   should "list and clear definitions", ->
-    reset()
+    reset('clearall')
     expectResponseFor 'clear *', 'Cleared all window definitions.'
     assert.equal 0, Object.keys(defs).length
 
-    reset()
+    reset('defs')
     expectSuggestionFor 'defs', 'Press enter to list the window definitions.'
     expectResponseFor 'defs', "Named windows:\n\ngoodbye (window 2)"
 
@@ -281,7 +286,7 @@ context "defs/clear",
 
 context "new",
   should "handle command", ->
-    reset()
+    reset('new')
 
     expectSuggestionFor 'new', 'Enter a name for the new window.'
     expectSuggestionFor 'new yes', 'Press enter to open a new window and name it "yes".'
@@ -299,7 +304,7 @@ context "new",
 
 context "find",
   should "handle command", ->
-    reset()
+    reset('find')
 
     expectSuggestionFor 'find', 'Enter a pattern to find a tab.'
     expectResponseFor 'find', 'Enter a pattern to find a tab.'
@@ -336,7 +341,7 @@ context "find",
 
 context 'bring',
   should 'handle command', ->
-    reset()
+    reset('bring')
 
     focusWindow 1
     assert.equal 2, currentWindow().tabs.length
@@ -362,7 +367,7 @@ context 'bring',
 
 context 'send',
   should 'send to existing window', ->
-    reset()
+    reset('sendexist')
     focusWindow 1
     focusTab 3
     assert.equal 2, currentWindow().tabs.length
@@ -375,7 +380,7 @@ context 'send',
 
 context 'send',
   should 'send to new window', ->
-    reset()
+    reset('sendnew')
     focusTab 3
     assert.equal 2, currentWindow().tabs.length
     expectSuggestionFor 'send whatever', "Press enter to send this tab to new window \"whatever\"."
@@ -383,6 +388,42 @@ context 'send',
     assert.equal 1, currentWindow().tabs.length
     focusWindow 9
     assert.equal 'whatever', ts.getName(currentWindow())
+    assert.equal 1, currentWindow().tabs.length
+
+context 'extract',
+  should 'extract tabs', ->
+    reset('extract')
+    expectSuggestionFor 'extract', 'Enter a name or pattern.'
+    expectSuggestionFor 'extract nothing', "No tabs found matching 'nothing'. Enter more args to use it as a name."
+    expectSuggestionFor 'extract salts?', "Press enter to extract 1 tab matching /salts?/ into a new window named \"salts?\"."
+    expectSuggestionFor 'extract things', "Press enter to extract 3 tabs matching 'things' into a new window named \"things\"."
+    expectSuggestionFor 'extract stuff things', "Press enter to extract 3 tabs matching 'things' into a new window named \"stuff\"."
+    expectSuggestionFor 'extract stuff th[io]ngs', "Press enter to extract 3 tabs matching /th[io]ngs/ into a new window named \"stuff\"."
+    expectSuggestionFor 'extract stuff things items', "Press enter to extract 3 tabs matching 2 patterns into a new window named \"stuff\"."
+
+    expectResponseFor 'extract nothing', 'No tabs found matching the given pattern(s).'
+    assert.equal 2, Object.keys(openWindows).length
+
+    expectNoResponseFor 'extract stuff things items'
+    assert.equal 3, Object.keys(openWindows).length
+    focusWindow 1
+    assert.equal 0, currentWindow().tabs.length
+    focusWindow 2
+    assert.equal 1, currentWindow().tabs.length
+    focusWindow 9
+    assert.equal 3, currentWindow().tabs.length
+    assert.equal 'stuff', ts.getName(currentWindow())
+
+context 'split',
+  should 'split windows', ->
+    reset('split')
+    expectSuggestionFor 'split', "Press enter to split this window in two."
+
+    expectNoResponseFor 'split'
+    assert.equal 3, Object.keys(openWindows).length
+    focusWindow 1
+    assert.equal 1, currentWindow().tabs.length
+    focusWindow 9
     assert.equal 1, currentWindow().tabs.length
 
 

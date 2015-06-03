@@ -242,12 +242,14 @@ class TabShepherd
 
   withTabsMatching = (patterns, callback) ->
     return callback([]) if !patterns
-    patterns = [ patterns ] if typeof patterns == 'string'
+    patterns = [ patterns ] if typeof patterns == 'string' or typeof patterns == 'function'
     return callback([]) if patterns.length == 0 or patterns[0] == ''
 
     matches = (tab) =>
       for p in patterns
-        if /^\/.+\/$/.test(p)
+        if typeof p == 'function'
+          return true if p(tab)
+        else if /^\/.+\/$/.test(p)
           r = new RegExp(p.substring(1, p.length - 1))
           return true if r.test(tab.url) or r.test(tab.title)
         else if isRegex p
@@ -314,8 +316,9 @@ class TabShepherd
 
   withNewWindow = (name, callback) ->
     windows.create type: 'normal', (win) ->
-      definitions[name] = id: win.id, name: name
-      setName win, name
+      if name?
+        definitions[name] = id: win.id, name: name
+        setName win, name
       callback win
 
   withCurrentWindow: (callback) -> withCurrentWindow callback
@@ -447,6 +450,7 @@ class TabShepherd
       help: ->
         @finish 'Press enter to list the window definitions.'
       run: ->
+        console.dir definitions
         withEachDefinition
           run: (def, win) =>
             winText = if win? then 'window ' + win.id else 'no attached window'
@@ -501,7 +505,6 @@ class TabShepherd
           else
             @finish "Window definition %w not found.", name
       run: (name) ->
-        console.dir definitions
         return @finish('Enter a window definition name') if !name?
         if name == '*'
           deleteDefinition(name) for own name, def of definitions
@@ -759,9 +762,11 @@ class TabShepherd
           withTabsMatching patterns, (matchingTabs) =>
             num = matchingTabs.length
             if num < 1
-              @finish 'No tabs found matching the given pattern(s).'
+              @finish 'No tabs found matching %p. Enter more args to use it as a name.', name
+            else if patterns.length > 1
+              @finish "Press enter to extract %s matching %s patterns into a new window named %w.", plur("tab", num), patterns.length, name
             else
-              @finish "Press enter to extract %s tab(s) matching %p%s into a new window named %w.", num, patterns[0], (if patterns.length > 1 then ', ...' else ''), name
+              @finish "Press enter to extract %s matching %p into a new window named %w.", plur("tab", num), patterns[0], name
       run: ->
         if @args.length == 0
           @finish 'Enter a name or pattern.'
@@ -772,7 +777,7 @@ class TabShepherd
             if matchingTabs.length < 1
               @finish 'No tabs found matching the given pattern(s).'
             else
-              withNewWindow name, (win) ->
+              withNewWindow name, (win) =>
                 tabs.move matchingTabs, windowId: win.id, index: -1, =>
                   setName win, name
                   win.patterns = patterns
@@ -791,6 +796,19 @@ class TabShepherd
       examples: 'ts merge restaurants': "Move all the tabs from the window 'restaurants' into the current window and remove the 'restaurants' definition."
       help: ->
       run: ->
+    split:
+      desc: 'Split a window in two, moving half of the tabs to a new window.'
+      type: 'Moving tabs'
+      examples: 'ts split': 'Move the last half the tabs in the current window into a new window.'
+      help: ->
+        @finish "Press enter to split this window in two."
+      run: ->
+        withCurrentWindow (win) =>
+          withTabsMatching ((tab) -> tab.windowId == win.id), (matchingTabs) =>
+            if (matchingTabs.length >= 2)
+              withNewWindow undefined, (newWin) =>
+                tabs.move matchingTabs.slice(matchingTabs.length / 2), windowId: newWin.id, index: -1, =>
+                  @finish()
     assign:
       desc: 'Assign a pattern to the current window'
       type: 'Managing URL patterns'
