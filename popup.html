@@ -8,18 +8,7 @@
   <head>
     <title>Tab Shepherd</title>
     <style>
-      body {
-        font-family: "Segoe UI", "Lucida Grande", Tahoma, sans-serif;
-        width: 600px;
-        font-size: 100%;
-      }
-      #status {
-        /* avoid an excessively wide status text */
-        white-space: pre;
-        text-overflow: ellipsis;
-        overflow: hidden;
-        max-width: 400px;
-      }
+
     </style>
 
     <!--
@@ -32,15 +21,18 @@
     <script src="angular.min.js"></script>
   </head>
   <body ng-app="TabShepPopup">
+    <div id="tsTitle">TabShepherd</div>
     <div id="status" ng-controller="PopupController">
         <div id="definition">
-            {{test}} This window is named: <input type="text" id="name" style="width:100px" ng-model="name"/>
+            This window is named: <input type="text" id="name" style="width:100px" ng-model="name"/>
             <input type="button" id="setName" value="Set" ng-click="setName()" ng-disabled="def.name == name"/>
         </div>
         <div id="patternOuter">
             Patterns assigned to this window: <br/>
             <div id="patterns" ng-model="patterns">
-                <div ng-repeat="pattern in def.patterns">{{pattern}}</div>
+                <ul>
+                    <li ng-repeat="pattern in def.patterns">{{pattern}}</li>
+                </ul>
             </div>
             <input type="text" id="newPattern" style="width:200px" ng-model="newPattern"/>
             <input type="button" id="addPattern" value="Add" ng-click="addPattern()"/>

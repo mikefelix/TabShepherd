@@ -3,23 +3,24 @@ popup = angular.module 'TabShepPopup', []
 
 popup.controller 'PopupController', ($scope) ->
   ts.withCurrentWindow (win) ->
-    $scope.test = 'yes'
-    $scope.name = ts.getName(win) ? 'none'
-    $scope.def = ts.getDefinition $scope.name if $scope.name
-    $scope.def.patterns = [] if !$scope.def.patterns?
-    console.dir($scope.def.patterns)
+    $scope.name = ts.getName(win) ? ''
+    if $scope.name
+      $scope.def = ts.getDefinition $scope.name
+      $scope.def.patterns = [] if $scope.def? and !$scope.def.patterns?
+      console.dir $scope.def.patterns if $scope.def?.patterns?
+    $scope.$digest();
 
-    $scope.setName = ->
-      ts.withCurrentWindow (win) ->
-        ts.setName win, $scope.name
-        ts.storeDefinitions()
+  $scope.setName = ->
+    ts.withCurrentWindow (win) ->
+      ts.setName win, $scope.name
+      ts.storeDefinitions()
 
-    $scope.addPattern = ->
-      $scope.def.patterns.push $scope.newPattern
-      ts.withCurrentWindow (win) ->
-        ts.assignPattern $scope.newPattern, win
-        $scope.newPattern = ''
-        ts.storeDefinitions()
+  $scope.addPattern = ->
+    $scope.def.patterns.push $scope.newPattern
+    ts.withCurrentWindow (win) ->
+      ts.assignPattern win, $scope.newPattern
+      $scope.newPattern = ''
+      ts.storeDefinitions()
 
 #$ = (id) -> document.getElementById id
 #

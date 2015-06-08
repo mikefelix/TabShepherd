@@ -362,13 +362,17 @@
   };
 
   expectSuggestionFor = function(text, output) {
+    var cmd;
     changeInput(text);
-    return assertOmni(output);
+    cmd = text.replace(/\s.*/, '');
+    return assertOmni(cmd + ": " + output);
   };
 
   expectResponseFor = function(text, output) {
+    var cmd;
     enterInput(text);
-    return assertAlert(output);
+    cmd = text.replace(/\s.*/, '');
+    return assertAlert(cmd + ": " + output);
   };
 
   expectNoResponseFor = function(text) {
@@ -419,24 +423,31 @@
     return assert.equal("color is 'bluegreen'", ts.makeText("color is %p", 'bluegreen'));
   }));
 
-  context("Commands", should("show help", function() {
-    changeInput('help', suggest);
-    return assertOmni(/^Possible commands:/);
+  context("help", should("show help", function() {
+    reset('help');
+    changeInput('help');
+    assertOmni('help: Enter a command name or press enter to see possible commands.');
+    changeInput('help blah');
+    assertOmni('blah: No matching command found.');
+    changeInput('help find');
+    assertOmni('find: ' + ts.commands()['find'].desc);
+    changeInput('s');
+    return assertOmni('[send/sort/split] Keep typing to narrow command results.');
   }));
 
-  context("Commands", should("show help on a command", function() {
+  context("help", should("show help on a command", function() {
     var cmd, name, ref, results;
+    reset('help');
     ref = ts.commands();
     results = [];
     for (name in ref) {
       if (!hasProp.call(ref, name)) continue;
       cmd = ref[name];
-      changeInput("help " + name, suggest);
-      if ((cmd.alias == null) && name !== 'help') {
-        results.push(assertOmni(name + ": " + cmd.desc));
-      } else {
-        results.push(void 0);
+      if (!(name !== 'help')) {
+        continue;
       }
+      changeInput("help " + name);
+      results.push(assertOmni(name + ": " + cmd.desc));
     }
     return results;
   }));
@@ -590,6 +601,67 @@
     assert.equal(3, currentWindow().tabs.length);
     return assert.equal('stuff', ts.getName(currentWindow()));
   }));
+
+  context('open', should('open new windows', function() {
+    reset('open');
+    assert.equal(2, Object.keys(openWindows).length);
+    expectSuggestionFor('open stuff', 'Press enter to open new window "stuff".');
+    expectNoResponseFor('open stuff');
+    assert.equal(3, Object.keys(openWindows).length);
+    assert.equal(9, currentWindow().id);
+    expectSuggestionFor('open goodbye', 'Press enter to open window "goodbye".');
+    expectNoResponseFor('open goodbye');
+    assert.equal(3, Object.keys(openWindows).length);
+    assert.equal(2, currentWindow().id);
+    defs['elephant'] = {
+      id: 15,
+      name: 'elephant',
+      patterns: ['elephant'],
+      activeUrl: 'http://elephant.com'
+    };
+    expectSuggestionFor('open elephant', 'Press enter to open a new window for existing definition "elephant".');
+    expectNoResponseFor('open elephant');
+    assert.equal(4, Object.keys(openWindows).length);
+    return assert.equal(11, currentWindow().id);
+  }));
+
+  context('merge', should('merge windows', function() {
+    reset('merge');
+    focusWindow(1);
+    ts.setName(currentWindow(), 'hello');
+    expectSuggestionFor('merge', 'Enter a defined window name.');
+    expectSuggestionFor('merge goodbye', 'Press enter to move 2 tabs and 1 pattern from window "goodbye" to this window "hello".');
+    expectNoResponseFor('merge goodbye');
+    assert.equal(4, currentWindow().tabs.length);
+    return assert.equal(void 0, ts.getDefinition('goodbye'));
+  }));
+
+  context('sort', should('sort tabs', function() {
+    reset('sort');
+    focusWindow(1);
+    currentWindow().tabs.push(createTab(nextId(), currentWindow().id, 'http://bluepotatochips.com'));
+    assert.equal(3, currentWindow().tabs.length);
+    expectSuggestionFor('sort', 'Press enter to sort all windows according to their assigned patterns.');
+    expectNoResponseFor('sort');
+    assert.equal(2, currentWindow().tabs.length);
+    focusWindow(2);
+    return assert.equal(3, currentWindow().tabs.length);
+  }));
+
+
+  /*
+  context 'split',
+    should 'split windows', ->
+      reset('split')
+      expectSuggestionFor 'split', "Press enter to split this window in two."
+  
+      expectNoResponseFor 'split'
+      assert.equal 3, Object.keys(openWindows).length
+      focusWindow 1
+      assert.equal 1, currentWindow().tabs.length
+      focusWindow 9
+      assert.equal 1, currentWindow().tabs.length
+   */
 
   Tests.run();
 

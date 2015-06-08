@@ -188,10 +188,14 @@ assertText = (text, holder) ->
 
 expectSuggestionFor = (text, output) ->
   changeInput text
-  assertOmni output
+  cmd = text.replace /\s.*/, ''
+  assertOmni "#{cmd}: #{output}"
+#  assertOmni output
 expectResponseFor = (text, output) ->
   enterInput text
-  assertAlert output
+  cmd = text.replace /\s.*/, ''
+  assertAlert "#{cmd}: #{output}"
+#  assertAlert output
 expectNoResponseFor = (text) ->
   enterInput text
   assertNoOutput()
@@ -229,17 +233,24 @@ context "makeText",
     assert.equal 'color is /blue|green/', ts.makeText("color is %p", 'blue|green')
     assert.equal "color is 'bluegreen'", ts.makeText("color is %p", 'bluegreen')
 
-context "Commands",
+context "help",
   should "show help", ->
-    changeInput 'help', suggest
-    assertOmni /^Possible commands:/
+    reset 'help'
+    changeInput 'help'
+    assertOmni 'help: Enter a command name or press enter to see possible commands.'
+    changeInput 'help blah'
+    assertOmni 'blah: No matching command found.'
+    changeInput 'help find'
+    assertOmni 'find: ' + ts.commands()['find'].desc
+    changeInput 's'
+    assertOmni '[send/sort/split] Keep typing to narrow command results.'
 
-context "Commands",
+context "help",
   should "show help on a command", ->
-    for own name, cmd of ts.commands()
-      changeInput "help #{name}", suggest
-      if (!cmd.alias? and name != 'help')
-        assertOmni "#{name}: #{cmd.desc}"
+    reset 'help'
+    for own name, cmd of ts.commands() when name != 'help'
+      changeInput "help #{name}"
+      assertOmni "#{name}: #{cmd.desc}"
 
 context "name",
   should "handle command", ->
@@ -414,6 +425,60 @@ context 'extract',
     assert.equal 3, currentWindow().tabs.length
     assert.equal 'stuff', ts.getName(currentWindow())
 
+context 'open',
+  should 'open new windows', ->
+    reset('open')
+    assert.equal 2, Object.keys(openWindows).length
+
+    expectSuggestionFor 'open stuff', 'Press enter to open new window "stuff".'
+    expectNoResponseFor 'open stuff'
+    assert.equal 3, Object.keys(openWindows).length
+    assert.equal 9, currentWindow().id
+
+    expectSuggestionFor 'open goodbye', 'Press enter to open window "goodbye".'
+    expectNoResponseFor 'open goodbye'
+    assert.equal 3, Object.keys(openWindows).length
+    assert.equal 2, currentWindow().id
+
+    defs['elephant'] =
+      id: 15
+      name: 'elephant'
+      patterns: ['elephant']
+      activeUrl: 'http://elephant.com'
+
+    expectSuggestionFor 'open elephant', 'Press enter to open a new window for existing definition "elephant".'
+    expectNoResponseFor 'open elephant'
+    assert.equal 4, Object.keys(openWindows).length
+    assert.equal 11, currentWindow().id
+
+context 'merge',
+  should 'merge windows', ->
+    reset 'merge'
+
+    focusWindow 1
+    ts.setName currentWindow(), 'hello'
+    expectSuggestionFor 'merge', 'Enter a defined window name.'
+    expectSuggestionFor 'merge goodbye', 'Press enter to move 2 tabs and 1 pattern from window "goodbye" to this window "hello".'
+    expectNoResponseFor 'merge goodbye'
+    assert.equal 4, currentWindow().tabs.length
+    assert.equal undefined, ts.getDefinition('goodbye')
+
+context 'sort',
+  should 'sort tabs', ->
+    reset 'sort'
+
+    focusWindow 1
+    currentWindow().tabs.push createTab(nextId(), currentWindow().id, 'http://bluepotatochips.com')
+    assert.equal 3, currentWindow().tabs.length
+    expectSuggestionFor 'sort', 'Press enter to sort all windows according to their assigned patterns.'
+    expectNoResponseFor 'sort'
+    assert.equal 2, currentWindow().tabs.length
+    focusWindow 2
+    assert.equal 3, currentWindow().tabs.length
+
+
+
+###
 context 'split',
   should 'split windows', ->
     reset('split')
@@ -425,6 +490,7 @@ context 'split',
     assert.equal 1, currentWindow().tabs.length
     focusWindow 9
     assert.equal 1, currentWindow().tabs.length
+###
 
 
 Tests.run()

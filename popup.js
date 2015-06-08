@@ -7,32 +7,34 @@
   popup = angular.module('TabShepPopup', []);
 
   popup.controller('PopupController', function($scope) {
-    return ts.withCurrentWindow(function(win) {
-      var ref;
-      $scope.test = 'yes';
-      $scope.name = (ref = ts.getName(win)) != null ? ref : 'none';
+    ts.withCurrentWindow(function(win) {
+      var ref, ref1;
+      $scope.name = (ref = ts.getName(win)) != null ? ref : '';
       if ($scope.name) {
         $scope.def = ts.getDefinition($scope.name);
+        if (($scope.def != null) && ($scope.def.patterns == null)) {
+          $scope.def.patterns = [];
+        }
+        if (((ref1 = $scope.def) != null ? ref1.patterns : void 0) != null) {
+          console.dir($scope.def.patterns);
+        }
       }
-      if ($scope.def.patterns == null) {
-        $scope.def.patterns = [];
-      }
-      console.dir($scope.def.patterns);
-      $scope.setName = function() {
-        return ts.withCurrentWindow(function(win) {
-          ts.setName(win, $scope.name);
-          return ts.storeDefinitions();
-        });
-      };
-      return $scope.addPattern = function() {
-        $scope.def.patterns.push($scope.newPattern);
-        return ts.withCurrentWindow(function(win) {
-          ts.assignPattern($scope.newPattern, win);
-          $scope.newPattern = '';
-          return ts.storeDefinitions();
-        });
-      };
+      return $scope.$digest();
     });
+    $scope.setName = function() {
+      return ts.withCurrentWindow(function(win) {
+        ts.setName(win, $scope.name);
+        return ts.storeDefinitions();
+      });
+    };
+    return $scope.addPattern = function() {
+      $scope.def.patterns.push($scope.newPattern);
+      return ts.withCurrentWindow(function(win) {
+        ts.assignPattern(win, $scope.newPattern);
+        $scope.newPattern = '';
+        return ts.storeDefinitions();
+      });
+    };
   });
 
 }).call(this);

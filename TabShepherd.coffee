@@ -41,23 +41,27 @@ class TabShepherd
       c.run()
 
     windows.onRemoved.addListener (windowId) =>
-      withWindow windowId, (win) =>
+      withExistingWindow windowId, (win) =>
         if (getName(win)?)
           def = getDefinition win
-          withHighlightedTab win, (tabs) =>
-            def.activeUrl = tabs[0].url if tabs.length > 0
+          withHighlightedTab win, (tab) =>
+            def.activeUrl = tab.url if tab?
             storeDefinitions()
 
   commands: -> commands
 
-  getCommand = (text) ->
+  getCommandName = (text) ->
     idx = if text then text.indexOf(' ') else -1
-    name = if idx == -1 then text else text.substring(0, idx)
-    if commands[name]
-      if commands[name]['alias']
-        commands[commands[name]['alias']]
-      else
-        commands[name]
+    if idx == -1 then text else text.substring(0, idx)
+
+  getPossibleCommands = (text) ->
+    name = getCommandName text
+    k for own k, v of commands when k.indexOf(name) == 0
+
+  getCommand = (text) ->
+    cmds = getPossibleCommands text
+    if cmds.length == 1
+      commands[cmds[0]]
     else
       commands['help']
 
@@ -145,11 +149,9 @@ class TabShepherd
 
   storeDefinitions: -> storeDefinitions()
   storeDefinitions = ->
-#    console.log 'Storing:'
 #    console.dir definitions
     storage.set windowDefs: definitions, ->
-      if runtime.lastError
-        alert runtime.lastError
+      alert runtime.lastError if runtime.lastError
 
   loadDefinitions = (callback) ->
     storage.get 'windowDefs', (data) ->
@@ -180,8 +182,8 @@ class TabShepherd
       for pattern in def.patterns
         return def if pattern == def.patterns[i]
 
-  assignPattern: (pattern, win) -> assignPattern pattern, win
-  assignPattern = (pattern, win) ->
+  assignPattern: (win, pattern) -> assignPattern win, pattern
+  assignPattern = (win, pattern) ->
     name = getName(win)
     if not name?
       alert 'Window has no name!'
@@ -189,17 +191,18 @@ class TabShepherd
     if not definitions[name]?
       alert "Window #{name} has no definition!"
       return false
-    def = definitions[name]
-    if not def.patterns?
-      def.patterns = []
+    def = getDefinition name
+    def.patterns = [] if not def.patterns?
+    for p in def.patterns
+      return false if pattern == p
     def.patterns.push pattern
     true
 
-  unassignPattern = (pattern, window) ->
+  unassignPattern = (window, pattern) ->
     if not window.name?
       alert 'Window has no name.'
       return false
-    def = definitions[window.name]
+    def = getDefinition window
     if not def?
       alert 'No definition found for name ' + window.name
       return false
@@ -216,29 +219,24 @@ class TabShepherd
     false
 
   containsPattern = (pattern) ->
-    if !definitions[window.name]
-      alert 'Unknown window ' + window.name
-    regexes = definitions[window.name].regexes
-    return false if !regexes
-    for regex in regexes
-      return true if regex == pattern
+    alert 'Unknown window ' + window.name if !getDefinition(window)?
+    patt = getDefinitions(window).patterns
+    return false if !patt?
+    for p in patt
+      return true if p == pattern
     false
 
   listPatterns = (window) ->
-    def = definitions[window.name]
-    return '' if !def
-    patterns = def.patterns or []
-    "/#{patt}/\n" for patt in patterns
+    def = getDefinition window
+    return '' if !def?
+    patterns = def.patterns ? []
+    (makeText("%p\n", patt) for patt in patterns).join('')
 
   withWindowForPattern = (pattern, callback) ->
-    def = getDefForPattern(pattern)
-    return callback() if not def?
-    if not def.id?
-      alert "Definition #{def} found for pattern #{pattern} but it has no assigned window."
-    else
-      windows.get def.id, {}, (w) =>
-        w.def = def
-        callback w
+    withEachDefinition
+      where: (def, win) -> win? and def?.patterns?.indexOf(pattern) >= 0
+      run: callback
+      otherwise: callback
 
   withTabsMatching = (patterns, callback) ->
     return callback([]) if !patterns
@@ -263,42 +261,47 @@ class TabShepherd
       callback(tab.id for tab in results when matches(tab))
 
   withEachWindow = (args) ->
-    condition = args.where or => true
+    condition = args.where or -> true
     action = args.run
     finish = args.then
-    reduce = args.reduce or (msgs) => msgs.join(',')
-    windows.getAll {}, (wins) =>
+    reduce = args.reduce or (msgs) -> msgs.join(',')
+    otherwise = args.otherwise
+    windows.getAll {}, (wins) ->
       msgs = []
       for win in wins
-        def = definitions[win]
+        def = getDefinition win
         if condition win, def
           msgs.push action(win, def)
-      finish reduce(msgs) if finish?
+      if finish?
+        finish reduce(msgs)
+      else if msgs.length == 0 and otherwise?
+        otherwise()
+
+  windowMatching = (arg) ->
+    switch typeof arg
+      when 'string' then (win) => getName(win) == arg
+      when 'number' then (win) => win.id == arg
+      when 'function' then arg
+      when 'object' then (win) => ((win[k] == v) for own k, v of arg).reduce((t, s) -> t and s)
+      else alert "Can't use this argument type. #{typeof arg} #{arg}"
+
+  withExistingWindow = (arg, callback) ->
+    withEachWindow
+      where: windowMatching arg
+      run: callback
 
   withWindow = (arg, callback) ->
-    where = if typeof arg == 'string'
-      (win) => getName(win) == arg
-    else if typeof arg == 'number'
-      (win) => win.id == arg
-    else if typeof arg == 'function'
-      arg
-    else if typeof arg == 'object'
-      (win) =>
-        all = for own k, v of arg
-          win[k] == v
-        all.reduce (t, s) -> t and s
-    else
-      alert "Can't use this argument type."
-      undefined
-
-    if where
-      withEachWindow where: where, run: callback
+    withEachWindow
+      where: windowMatching arg
+      run: callback
+      otherwise: callback
 
   withEachDefinition = (args) ->
     condition = args.where or -> true
     action = args.run
     finish = args.then
     reduce = args.reduce or (msgs) -> msgs.join(',')
+    otherwise = args.otherwise
     windows.getAll {}, (wins) ->
       findWin = (name) ->
         for win in wins
@@ -308,7 +311,10 @@ class TabShepherd
         win = findWin name
         if condition(def, win)
           msgs.push action(def, win)
-      finish reduce(msgs) if finish?
+      if finish?
+        finish reduce(msgs)
+      else if msgs.length == 0 and otherwise?
+        otherwise()
 
   withActiveTab = (callback) ->
     tabs.query active: true, currentWindow: true, (tabs) ->
@@ -317,7 +323,7 @@ class TabShepherd
   withNewWindow = (name, callback) ->
     windows.create type: 'normal', (win) ->
       if name?
-        definitions[name] = id: win.id, name: name
+        definitions[name] = id: win.id, name: name if !getDefinition(name)?
         setName win, name
       callback win
 
@@ -353,7 +359,13 @@ class TabShepherd
     cmd = null
 
     constructor: (text, _output) ->
-      cmd = getCommand(text)
+      poss = getPossibleCommands text
+      if poss.length == 1
+        @name = poss[0]
+        cmd = commands[@name]
+      else
+        @name = text.replace /\s.*/, ''
+        cmd = commands['help']
       @args = getArgs(text)
       output = _output
 
@@ -371,7 +383,11 @@ class TabShepherd
     finish: ->
       args = (a for a in arguments)
       status = makeText args...
-      output status
+      if status?
+        if cmd.type == 'Help'
+          output status
+        else
+          output "#{@name}: #{status}"
       close() if saveData
 
     run: ->
@@ -388,7 +404,7 @@ class TabShepherd
     tabs:
       desc: "Show active tab information"
       type: 'Managing window definitions'
-      examples: "ts tabs": "Show active tab information."
+      examples: "ts tabs": "Show information on each active tab."
       help: ->
         @finish "Press enter to see active tab information."
       run: ->
@@ -403,7 +419,7 @@ class TabShepherd
       run: ->
         windows.getAll (wins) =>
           @finish ("#{win.id}: #{getName(win)}" for win in wins).join("\n")
-    id:
+    window:
       desc: "Show the current window's ID"
       type: 'Managing window definitions'
       examples: "ts id": "Show the current window's ID."
@@ -411,7 +427,8 @@ class TabShepherd
         withCurrentWindow (win) =>
           @finish "This window's ID is %s and its name is %w", win.id, getName(win)
       run: ->
-    n: alias: 'name'
+        withCurrentWindow (win) =>
+          @finish "This window's ID is %s and its name is %w", win.id, getName(win)
     name:
       desc: 'Change the name of the current window definition'
       type: 'Managing window definitions'
@@ -429,19 +446,12 @@ class TabShepherd
             else
               @finish 'Enter a name for this window.'
       run: (name) ->
-        return @finish('No name provided.') if !name
         withCurrentWindow (win) =>
-          setName win, name
-          @finish()
-
-    attach:
-      desc: 'Attach the current window to a previously defined window definition'
-      type: 'Managing window definitions'
-      examples: 'ts attach work': 'Attach the current window to the existing window definition called \'work\'.'
-      help: ->
-        withCurrentWindow (win) =>
-      run: ->
-        withCurrentWindow (win) =>
+          if !name?
+            @finish('No name provided.')
+          else
+            setName win, name
+            @finish()
 
     defs:
       desc: 'List named window definitions'
@@ -450,7 +460,7 @@ class TabShepherd
       help: ->
         @finish 'Press enter to list the window definitions.'
       run: ->
-        console.dir definitions
+#        console.dir definitions
         withEachDefinition
           run: (def, win) =>
             winText = if win? then 'window ' + win.id else 'no attached window'
@@ -466,26 +476,26 @@ class TabShepherd
       examples:
         'ts new cats': "Create a new window with definition named 'cats'."
         'ts new cats \\bcats?\\b': "Create a new window with definition named 'cats' and containing one pattern. Move no tabs."
-      help: (name) ->
+      help: (name, patterns...) ->
         return @finish('Enter a name for the new window.') if !name
         withWindowNamed name, (win) =>
           if win?
             @finish "There is already a window named %w.", name
-          else if @args.length == 1
+          else if patterns.length == 0
             @finish "Press enter to open a new window and name it %w.", name
-          else if @args.length == 2
+          else if patterns.length > 0
             @finish "Press enter to open a new window named %w and assign it the pattern %p.", name, @args[1]
           else
             @finish "Press enter to open a new window named %w and assign it the patterns.", name
-      run: (name) ->
+      run: (name, patterns...) ->
         return @finish('No window name provided.') if !name
         withWindowNamed name, (win) =>
-          return @finish("There is already a window named %w.", name) if win
+          return @finish("There is already a window named %w.", name) if win?
           withNewWindow name, (win) =>
             def = getDefinition name
-            for arg in @args.slice 1
-              def.patterns = [] if !win.patterns?
-              def.patterns.push arg
+            for p in patterns
+              def.patterns = [] if !def.patterns?
+              def.patterns.push p
             @finish()
 
     clear:
@@ -551,56 +561,65 @@ class TabShepherd
         withWindow ((win) -> not getName(win)?), (win) =>
           focus win if win
           @finish()
-    focus:
-      desc: 'Switch to the window with the given name'
+    open:
+      desc: 'Open to the window with the given name, creating a new window if necessary'
       type: 'Changing focus'
-      examples: 'ts focus work': "Focus the window named 'work'."
+      examples: 'ts focus work': "Focus the window with the definition \"work\" if it exists, otherwise create a window, give it definition \"work\" and focus it."
       help: (name) ->
-        if !getDefinition(name)
-          @finish 'Type a defined window name.'
+        if not name?
+          @finish "Enter a window name."
         else
-          @finish "Press enter to focus window %w.", name
+          withWindow name, (win) =>
+            if win?
+              @finish "Press enter to open window %w.", name
+            else if getDefinition(name)?
+              @finish "Press enter to open a new window for existing definition %w.", name
+            else
+              @finish "Press enter to open new window %w.", name
       run: (name) ->
-        if !getDefinition(name)
-          @finish "No such window %w.", name
-        else withWindow name, (win) =>
-          if !win?
-            @finish "Window not found: %w.", name
-          else
-            focus win
-            @finish()
-    go_exp:
-      desc: 'Perform either "find", "extract" or "focus", depending on the arguments'
-      type: 'Changing focus'
-      examples:
-        'ts go document': 'If there is one tab matching /document/, behave as "ts find document", else behave as "ts extract document".',
-        'ts go "work"' : 'If there is a window named "work", behave as "ts focus work", otherwise behave as "ts new work".'
-      help: (pattern, name) ->
-        name = pattern if !name?
-        if /^"/.test pattern
-          getCommand('focus').help.apply @, @args
+        if not name?
+          @finish "Enter a window name."
         else
-          getCommand('find').help.apply @, @args
-
-      run: (pattern, name) ->
-        name = pattern if !name?
-        if /^"/.test pattern
-          getCommand('focus').run.apply @, @args
-        else
-          getCommand('find').run.apply @, @args
+          withWindow name, (win) =>
+            if win?
+              focus win
+              @finish()
+            else
+              withNewWindow name, (newWin) =>
+                focus newWin
+                @finish()
+#    go_exp:
+#      desc: 'Perform either "find", "extract" or "focus", depending on the arguments'
+#      type: 'Changing focus'
+#      examples:
+#        'ts go document': 'If there is one tab matching /document/, behave as "ts find document", else behave as "ts extract document".',
+#        'ts go "work"' : 'If there is a window named "work", behave as "ts focus work", otherwise behave as "ts new work".'
+#      help: (pattern, name) ->
+#        name = pattern if !name?
+#        if /^"/.test pattern
+#          getCommand('focus').help.apply @, @args
+#        else
+#          getCommand('find').help.apply @, @args
+#
+#      run: (pattern, name) ->
+#        name = pattern if !name?
+#        if /^"/.test pattern
+#          getCommand('focus').run.apply @, @args
+#        else
+#          getCommand('find').run.apply @, @args
     go:
-      desc: 'Perform either "find", "extract" or "focus", depending on the arguments'
+      desc: 'Perform either "find", "extract" or "focus", depending on the arguments and number of matches'
       type: 'Changing focus'
       examples:
         'ts go document': 'If there is one tab matching /document/, behave as "ts find document", else behave as "ts extract document".',
-        'ts go "work"' : 'If there is a window named "work", behave as "ts focus work", otherwise behave as "ts new work".'
+        'ts go "work"' : 'If there is a window named "work", behave as "ts open work", otherwise behave as "ts new work".'
       help: (pattern, name) ->
         name = pattern if !name?
         if /^"/.test pattern
           if !getDefinition(name)
-            @finish "Press enter to create a new window named %w", name.replace(/"/, "")
+            @finish "Press enter to create a new window named %w", name.replace(/"/g, "")
           else
-            @finish "Press enter to focus window %w.", name.replace(/"/, "")
+            @finish "Press enter to focus window %w.", name.replace(/"/g, "")
         else
           withTabsMatching pattern, (matchingTabsIds) =>
             if matchingTabsIds.length == 1
@@ -612,7 +631,7 @@ class TabShepherd
       run: (pattern, name) ->
         name = pattern if !name?
         if /^"/.test pattern
-          win = pattern.replace(/"/, "")
+          win = pattern.replace(/"/g, "")
           if !getDefinition(name)
             withNewWindow name, =>
               @finish()
@@ -631,16 +650,15 @@ class TabShepherd
               withNewWindow name, (win) ->
                 tabs.move matchingTabsIds, windowId: win.id, index: -1, =>
                   setName win, name
-                  win.patterns = [ pattern ]
+                  assignPattern win, pattern
                   tabs.remove win.tabs[win.tabs.length - 1].id, =>
                     @finish()
             else
               @finish "No tabs found matching %p.", pattern
-    f: alias: 'find'
     find:
-      desc: 'Go to the first tab found matching a pattern.'
+      desc: 'Go to the first tab found matching a pattern, never moving tabs'
       type: 'Changing focus'
-      examples: "ts find google.com': 'Focus the first tab found to match 'google.com'."
+      examples: "ts find google.com': 'Focus the first tab found to match 'google.com', or do nothing if no tab is found."
       help: (pattern) ->
         return @finish('Enter a pattern to find a tab.') if !pattern?
         withTabsMatching pattern, (matchingTabs) =>
@@ -665,7 +683,6 @@ class TabShepherd
                 tabs.update tab.id, active: true, =>
           else
             @finish "No matching tabs found for %p.", pattern
-    b: alias: 'bring'
     bring:
       desc: 'Bring tabs matching a pattern to the current window'
       type: 'Moving tabs'
@@ -673,11 +690,11 @@ class TabShepherd
         'ts bring cute.*bunnies.com': 'Bring tabs whose URLs match the given pattern (e.g. cutewhitebunnies.com and cutefluffybunnies.com) to the current window.'
         'ts bring': 'Bring tabs whose URLs match all this window\'s assigned patterns to this window.'
       help: (patterns...) ->
-        return @finish 'Enter one or more patterns. No assigned patterns exist for this window.' if !patterns?.length and !def?.patterns?.length
         withCurrentWindow (win) =>
           usingAssigned = patterns.length == 0
           if usingAssigned
             def = getDefinition win
+            return @finish 'Enter one or more patterns. No assigned patterns exist for this window.' if !def?.patterns?.length
             patterns = def.patterns
           withTabsMatching patterns, (matchingTabs) =>
             num = matchingTabs.length
@@ -699,11 +716,10 @@ class TabShepherd
               @finish 'No tabs found matching %s:\n\n%s', plur(type, patterns.length), (makeText("%p", pat) for pat in patterns).join("\n")
             else
               tabs.move matchingTabs, windowId: win.id, index: -1, => @finish()
-    s: alias: 'send'
     send:
-      desc: 'Send the current tab to the window named in the argument'
+      desc: 'Send the current tab to the window named in the argument, creating the window if necessary'
       type: 'Moving tabs'
-      examples: 'ts send research': "Send the current tab to the window named 'research'."
+      examples: 'ts send research': "Send the current tab to the window named 'research', first creating it if necessary."
       help: (name) ->
         if not name?
           @finish 'Enter a window name to send this tab there.'
@@ -721,38 +737,34 @@ class TabShepherd
             withNewWindow name, (win) =>
               tabs.move tab.id, windowId: win.id, index: -1
               tabs.remove win.tabs[win.tabs.length - 1].id, => @finish()
-    o:
-      alias: 'open'
-    open:
-      desc: 'Open a URL or search in a different window'
-      type: 'Moving tabs'
-      examples: 'ts open work google.com': "Opens the URL 'http://google.com' in the window 'work'."
-      help: (name, url) ->
-        if not (name? and url?)
-          @finish 'Enter a window name followed by a URL to open the URL there.'
-        else
-          win = getDefinition name
-          @finish "Press enter to open this URL in %swindow %w.", (if win then '' else 'new '), name
-      run: (name, url) ->
-        return @finish('Enter a window name followed by a URL.') if !name or !url
-
-        openTab: (win) =>
-          url = 'http://' + url if !/^http:\/\//.test(url)
-          tabs.create windowId: win.id, url: url, =>
-            @finish()
-
-        withWindowNamed name, (existingWin) =>
-          if existingWin?
-            openTab existingWin
-          else
-            withNewWindow name, (win) =>
-              openTab win
-    e: alias: 'extract'
-    ex: alias: 'extract'
+#    _old_open:
+#      desc: 'Open a URL or search in a different window'
+#      type: 'Moving tabs'
+#      examples: 'ts open work google.com': "Opens the URL 'http://google.com' in the window 'work'."
+#      help: (name, url) ->
+#        if not (name? and url?)
+#          @finish 'Enter a window name followed by a URL to open the URL there.'
+#        else
+#          win = getDefinition name
+#          @finish "Press enter to open this URL in %swindow %w.", (if win then '' else 'new '), name
+#      run: (name, url) ->
+#        return @finish('Enter a window name followed by a URL.') if !name or !url
+#
+#        openTab: (win) =>
+#          url = 'http://' + url if !/^http:\/\//.test(url)
+#          tabs.create windowId: win.id, url: url, =>
+#            @finish()
+#
+#        withWindowNamed name, (existingWin) =>
+#          if existingWin?
+#            openTab existingWin
+#          else
+#            withNewWindow name, (win) =>
+#              openTab win
     extract:
-      desc: 'Extract tabs matching the pattern argument into a new window named with that pattern'
+      desc: 'Extract tabs matching the pattern arguments into a new window named with that pattern'
       type: 'Moving tabs'
-      examples: 'ts extract social facebook.com twitter.com': "Create a new window, give it a definition named 'social', assign patterns /facebook.com/ and /twitter.com/ to that definition, and move all tabs whose URLs match the patterns there. This is effectively \"ts new social\", followed by \"ts assign facebook.com twitter.com\", then \"ts bring\". "
+      examples: 'ts extract social facebook.com twitter.com': "Create a new window, give it a definition named 'social', assign patterns 'facebook.com' and 'twitter.com' to that definition, and move all tabs whose URLs match the patterns there. This is effectively \"ts new social\", followed by \"ts assign facebook.com twitter.com\", then \"ts bring\". "
       help: ->
         if @args.length == 0
           @finish 'Enter a name or pattern.'
@@ -780,22 +792,48 @@ class TabShepherd
               withNewWindow name, (win) =>
                 tabs.move matchingTabs, windowId: win.id, index: -1, =>
                   setName win, name
-                  win.patterns = patterns
+                  for p in patterns
+                    assignPattern win, p
                   tabs.remove win.tabs[win.tabs.length - 1].id, =>
                     @finish()
     sort:
       desc: 'Sort all tabs into windows by assigned patterns'
       type: 'Moving tabs'
-      examples: 'ts sort': "Move all tab that matches a defined pattern to that pattern's window. Effectively, perform \"ts bring\" for each window."
+      examples: 'ts sort': "Move all tabs that match a defined pattern to that pattern's window. Effectively, perform \"ts bring\" for each window."
       help: ->
-        @finish 'Press enter to sort all windows according to their assigned regexes.'
+        @finish 'Press enter to sort all windows according to their assigned patterns.'
       run: ->
+        for own name, def of definitions when def.patterns?
+          withWindowNamed name, (win) =>
+            withTabsMatching def.patterns, (tabz) =>
+              tabs.move tabz, windowId: win.id, index: -1, =>
+                @finish()
     merge:
-      desc: 'Merge all the tabs from a window into this window.'
+      desc: 'Merge all tabs and patterns from another window into this window.'
       type: 'Moving tabs'
-      examples: 'ts merge restaurants': "Move all the tabs from the window 'restaurants' into the current window and remove the 'restaurants' definition."
-      help: ->
-      run: ->
+      examples: 'ts merge restaurants': "Move all the tabs and patterns from window 'restaurants' into the current window and remove the 'restaurants' definition."
+      help: (name) ->
+        return @finish 'Enter a defined window name.' if !name?
+        withWindow name, (win) =>
+          return @finish 'No such window %w', name if !win?
+          withTabsMatching ((tab) -> tab.windowId == win.id), (tabz) =>
+            patterns = getDefinition(win)?.patterns ? []
+            withCurrentWindow (currWin) =>
+              @finish 'Press enter to move %s and %s from window %w to this window %w.', plur('tab', tabz.length), plur('pattern', patterns.length), name, getName(currWin)
+      run: (name) ->
+        return @finish 'Enter a defined window name.' if !name?
+        withWindow name, (win) =>
+          return @finish 'No such window %w', name if !win?
+          withTabsMatching ((tab) -> tab.windowId == win.id), (tabz) =>
+            def = getDefinition win
+            return @finish "Window %w has no definition!" if not def?
+            withCurrentWindow (currWin) =>
+              currDef = getDefinition currWin
+              currDef.patterns = [] if !currDef.patterns?
+              for p in def.patterns ? []
+                currDef.patterns.push p
+              tabs.move tabz, windowId: currWin.id, index: -1, =>
+                delete definitions[name]
     split:
       desc: 'Split a window in two, moving half of the tabs to a new window.'
       type: 'Moving tabs'
@@ -826,15 +864,15 @@ class TabShepherd
         if not pattern?
           @finish 'No pattern provided.'
         else
-          withCurrentWindow (window) ->
-            withWindowForPattern pattern, (currWin) ->
+          withCurrentWindow (window) =>
+            withWindowForPattern pattern, (currWin) =>
               msg = undefined
               if currWin?
-                if unassignPattern(pattern, currWin)
+                if unassignPattern currWin, pattern
                   msg = makeText('Pattern %p was moved from window %w to window %w.', pattern, getName(currWin), getName(window))
                 else
                   @finish 'Could not unassign pattern %p from window %w.', pattern, getName(currWin)
-              if assignPattern(pattern, window)
+              if assignPattern window, pattern
                 @finish msg
               else
                 @finish 'Could not assign pattern %p to window %w.', pattern, getName(window)
@@ -856,7 +894,7 @@ class TabShepherd
           @finish 'Pattern %p is not assigned to this window.'
         else
           withCurrentWindow (window) =>
-            if unassignPattern(pattern, window)
+            if unassignPattern window, pattern
               @finish()
             else
               @finish 'Could not unassign pattern %s from window %w.', pattern, getName(window)
@@ -868,18 +906,32 @@ class TabShepherd
         @finish 'Press enter to list the patterns assigned to this window.'
       run: ->
         withCurrentWindow (window) =>
-          @finish "Patterns assigned to window %w:\n\n%s", getName(window), listPatterns(window)
+          @finish "Patterns assigned to window %w:\n\n" + listPatterns(window), getName(window)
     help:
       desc: 'Get help on a command'
       type: 'Help'
-      examples: 'ts help bring': 'Show the usage examples for the "bring" command.'
-      help: (arg) ->
-        if !arg or !commands[arg] or arg == 'help'
-          @finish summarizeCommands(false)
+      examples: 'ts help bring': 'Show usage examples for the "bring" command.'
+      help: () ->
+        if @name == 'help'
+          if (@args.length > 0)
+            cmd = getCommand(@args[0])
+            if not cmd? or cmd == commands['help']
+              @finish "#{@args[0]}: No matching command found."
+            else
+              @finish "#{@args[0]}: #{cmd.desc}"
+          else
+            @finish 'help: Enter a command name or press enter to see possible commands.'
         else
-          @finish arg + ': ' + getCommand(arg).desc
-      run: (arg) ->
-        @finish summarizeCommands(arg)
+          cmds = getPossibleCommands @name
+          if cmds.length == 0
+            @finish "#{@name}: No matching command found."
+          else
+            @finish "[#{cmds.join('/')}] Keep typing to narrow command results."
+      run: () ->
+        if (@args.length > 0)
+          @finish summarizeCommands @args[0]
+        else
+          @finish summarizeCommands true
 
 root = exports ? window
 root.TabShepherd = TabShepherd
