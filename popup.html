@@ -35,7 +35,7 @@
                 </ul>
             </div>
             <input type="text" id="newPattern" style="width:200px" ng-model="newPattern"/>
-            <input type="button" id="addPattern" value="Add" ng-click="addPattern()"/>
+            <input type="button" id="addPattern" value="Add" ng-click="addPattern()" ng-disabled="!newPattern"/>
         </div>
     </div>
 

@@ -119,10 +119,12 @@ reset = (testName) ->
         focusedWindowId = winId if ops?.focused
         cb()
     tabs:
-      create: (winId, url, cb) ->
-        tabId = nextId()
-        tab = createTab tabId, winId, url
-        openWindows[winId].tabs.push tab
+      create: (ops, cb) ->
+        winId = ops.windowId
+        tab = createTab nextId(), winId, ops.url
+        win = openWindows[winId]
+        win.tabs.push tab
+        win.activeTabId = tab.id
         cb tab
       query: (ops, cb) ->
         fits = (t) ->
@@ -163,6 +165,13 @@ reset = (testName) ->
         cb()
   ts = new TabShepherd chrome, alert
 
+length = (obj) -> if obj.length? 
+  obj.length 
+else if typeof obj == 'object' 
+  Object.keys(obj).length
+else
+  throw "Can't get length of #{typeof obj}" 
+  
 changeInput = (input) -> inputChanged input, suggest
 enterInput = (input) -> inputEntered input
 focusWindow = (id) -> focusedWindowId = id
@@ -252,6 +261,15 @@ context "help",
       changeInput "help #{name}"
       assertOmni "#{name}: #{cmd.desc}"
 
+context "help",
+  should "show help page", ->
+    reset 'help'
+    focusWindow 1
+    assert.equal 2, length(currentWindow().tabs)
+    expectNoResponseFor 'help name'
+    assert.equal 3, length(currentWindow().tabs)
+    assertFocus 1, 9
+
 context "name",
   should "handle command", ->
     reset('name')
@@ -277,7 +295,7 @@ context "defs/clear",
   should "list and clear definitions", ->
     reset('clearall')
     expectResponseFor 'clear *', 'Cleared all window definitions.'
-    assert.equal 0, Object.keys(defs).length
+    assert.equal 0, length(defs)
 
     reset('defs')
     expectSuggestionFor 'defs', 'Press enter to list the window definitions.'
@@ -289,10 +307,10 @@ context "defs/clear",
     expectSuggestionFor 'clear blah', 'Window definition "blah" not found.'
     expectSuggestionFor 'clear goodbye', 'Press enter to clear window definition "goodbye". Warning: currently assigned to a window.'
 
-    assert.equal 2, Object.keys(defs).length
+    assert.equal 2, length(defs)
     assert.equal 'goodbye', defs['goodbye'].name
     expectResponseFor 'clear goodbye', 'Cleared window definition "goodbye" and removed it from a window.'
-    assert.equal 1, Object.keys(defs).length
+    assert.equal 1, length(defs)
     assert.equal undefined, defs['goodbye']
 
 context "new",
@@ -348,7 +366,7 @@ context "find",
     expectResponseFor 'find um.*mi', "No matching tabs found for /um.*mi/."
     assertFocus 2, 5
 
-    assert.equal 2, Object.keys(openWindows).length
+    assert.equal 2, length(openWindows)
 
 context 'bring',
   should 'handle command', ->
@@ -413,10 +431,10 @@ context 'extract',
     expectSuggestionFor 'extract stuff things items', "Press enter to extract 3 tabs matching 2 patterns into a new window named \"stuff\"."
 
     expectResponseFor 'extract nothing', 'No tabs found matching the given pattern(s).'
-    assert.equal 2, Object.keys(openWindows).length
+    assert.equal 2, length(openWindows)
 
     expectNoResponseFor 'extract stuff things items'
-    assert.equal 3, Object.keys(openWindows).length
+    assert.equal 3, length(openWindows)
     focusWindow 1
     assert.equal 0, currentWindow().tabs.length
     focusWindow 2
@@ -428,16 +446,16 @@ context 'extract',
 context 'open',
   should 'open new windows', ->
     reset('open')
-    assert.equal 2, Object.keys(openWindows).length
+    assert.equal 2, length(openWindows)
 
     expectSuggestionFor 'open stuff', 'Press enter to open new window "stuff".'
     expectNoResponseFor 'open stuff'
-    assert.equal 3, Object.keys(openWindows).length
+    assert.equal 3, length(openWindows)
     assert.equal 9, currentWindow().id
 
     expectSuggestionFor 'open goodbye', 'Press enter to open window "goodbye".'
     expectNoResponseFor 'open goodbye'
-    assert.equal 3, Object.keys(openWindows).length
+    assert.equal 3, length(openWindows)
     assert.equal 2, currentWindow().id
 
     defs['elephant'] =
@@ -448,7 +466,7 @@ context 'open',
 
     expectSuggestionFor 'open elephant', 'Press enter to open a new window for existing definition "elephant".'
     expectNoResponseFor 'open elephant'
-    assert.equal 4, Object.keys(openWindows).length
+    assert.equal 4, length(openWindows)
     assert.equal 11, currentWindow().id
 
 context 'merge',
@@ -485,7 +503,7 @@ context 'split',
     expectSuggestionFor 'split', "Press enter to split this window in two."
 
     expectNoResponseFor 'split'
-    assert.equal 3, Object.keys(openWindows).length
+    assert.equal 3, length(openWindows)
     focusWindow 1
     assert.equal 1, currentWindow().tabs.length
     focusWindow 9

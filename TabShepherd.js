@@ -51,13 +51,20 @@
       })(this));
       omnibox.onInputEntered.addListener((function(_this) {
         return function(text) {
-          var c;
-          c = new Command(text, function(res) {
+          var output;
+          output = getCommandName(text) !== 'help' ? function(res) {
             if (res) {
               return alert(res);
             }
-          });
-          return c.run();
+          } : function(url) {
+            return withCurrentWindow(function(win) {
+              return tabs.create({
+                windowId: win.id,
+                url: url
+              }, function() {});
+            });
+          };
+          return new Command(text, output).run();
         };
       })(this));
       windows.onRemoved.addListener((function(_this) {
@@ -944,10 +951,10 @@
                 return _this.finish("There is already a window named %w.", name);
               } else if (patterns.length === 0) {
                 return _this.finish("Press enter to open a new window and name it %w.", name);
-              } else if (patterns.length > 0) {
+              } else if (patterns.length === 1) {
                 return _this.finish("Press enter to open a new window named %w and assign it the pattern %p.", name, _this.args[1]);
               } else {
-                return _this.finish("Press enter to open a new window named %w and assign it the patterns.", name);
+                return _this.finish("Press enter to open a new window named %w and assign it the given patterns.", name);
               }
             };
           })(this));
@@ -988,7 +995,7 @@
         },
         help: function(name) {
           if (name == null) {
-            return this.finish('Enter a window definition name');
+            return this.finish('Enter a window definition name to remove.');
           }
           if (name === '*') {
             return this.finish('Press enter to clear all saved window definitions.');
@@ -1045,12 +1052,14 @@
             where: function(def, win) {
               return !win;
             },
-            run: function(def, win, name) {
-              return "'" + name + "'";
+            run: function(def) {
+              return "'" + def.name + "'";
             },
-            then: function(msg) {
-              return this.finish(msg ? 'Press enter to clean unused window definitions: ' + msg : 'No window definitions need cleaning.');
-            }
+            then: (function(_this) {
+              return function(msg) {
+                return _this.finish(msg ? 'Press enter to clean unused window definitions: ' + msg : 'No window definitions need cleaning.');
+              };
+            })(this)
           });
         },
         run: function() {
@@ -1059,14 +1068,16 @@
               return !win;
             },
             run: (function(_this) {
-              return function(def, win, name) {
-                deleteDefinition(name);
-                return "'" + name + "'";
+              return function(def) {
+                deleteDefinition(def.name);
+                return "'" + def.name + "'";
               };
             })(this),
-            then: function(msg) {
-              return this.finish(msg ? 'Cleaned unused window definitions: ' + msg : 'No window definitions needed cleaning.');
-            }
+            then: (function(_this) {
+              return function(msg) {
+                return _this.finish(msg ? 'Cleaned unused window definitions: ' + msg : 'No window definitions needed cleaning.');
+              };
+            })(this)
           });
         }
       },
@@ -1146,7 +1157,7 @@
         }
       },
       go: {
-        desc: 'Perform either "find", "extract" or "focus", depending on the arguments and number of matches',
+        desc: 'Perform either "find", "extract" or "open", depending on the arguments and number of matches',
         type: 'Changing focus',
         examples: {
           'ts go document': 'If there is one tab matching /document/, behave as "ts find document", else behave as "ts extract document".',
@@ -1389,15 +1400,18 @@
                 return tabs.move(tab.id, {
                   windowId: existingWin.id,
                   index: -1
+                }, function() {
+                  return _this.finish();
                 });
               } else {
                 return withNewWindow(name, function(win) {
-                  tabs.move(tab.id, {
+                  return tabs.move(tab.id, {
                     windowId: win.id,
                     index: -1
-                  });
-                  return tabs.remove(win.tabs[win.tabs.length - 1].id, function() {
-                    return _this.finish();
+                  }, function() {
+                    return tabs.remove(win.tabs[win.tabs.length - 1].id, function() {
+                      return _this.finish();
+                    });
                   });
                 });
               }
@@ -1725,9 +1739,9 @@
         },
         run: function() {
           if (this.args.length > 0) {
-            return this.finish(summarizeCommands(this.args[0]));
+            return this.finish("/help.html?command=" + this.args[0]);
           } else {
-            return this.finish(summarizeCommands(true));
+            return this.finish("/help.html");
           }
         }
       }

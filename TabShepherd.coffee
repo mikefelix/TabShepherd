@@ -36,9 +36,13 @@ class TabShepherd
       c.help()
 
     omnibox.onInputEntered.addListener (text) =>
-      c = new Command text, (res) =>
-        alert res if res
-      c.run()
+      output = if getCommandName(text) != 'help'
+        (res) => alert res if res
+      else
+        (url) =>
+          withCurrentWindow (win) =>
+            tabs.create windowId: win.id, url: url, =>
+      new Command(text, output).run()
 
     windows.onRemoved.addListener (windowId) =>
       withExistingWindow windowId, (win) =>
@@ -483,10 +487,10 @@ class TabShepherd
             @finish "There is already a window named %w.", name
           else if patterns.length == 0
             @finish "Press enter to open a new window and name it %w.", name
-          else if patterns.length > 0
+          else if patterns.length == 1
             @finish "Press enter to open a new window named %w and assign it the pattern %p.", name, @args[1]
           else
-            @finish "Press enter to open a new window named %w and assign it the patterns.", name
+            @finish "Press enter to open a new window named %w and assign it the given patterns.", name
       run: (name, patterns...) ->
         return @finish('No window name provided.') if !name
         withWindowNamed name, (win) =>
@@ -505,7 +509,7 @@ class TabShepherd
         'ts clear recipes': "Remove the window definition 'recipes'. No tabs are affected."
         'ts clear *': "Remove all window definitions from storage. No tabs are affected."
       help: (name) ->
-        return @finish('Enter a window definition name') if !name?
+        return @finish('Enter a window definition name to remove.') if !name?
         return @finish('Press enter to clear all saved window definitions.') if name == '*'
         withWindowNamed name, (win) =>
           if win?
@@ -537,15 +541,15 @@ class TabShepherd
       help: ->
         withEachDefinition
           where: (def, win) -> !win
-          run: (def, win, name) -> "'#{name}'"
-          then: (msg) -> @finish if msg then 'Press enter to clean unused window definitions: ' + msg else 'No window definitions need cleaning.'
+          run: (def) -> "'#{def.name}'"
+          then: (msg) => @finish if msg then 'Press enter to clean unused window definitions: ' + msg else 'No window definitions need cleaning.'
       run: ->
         withEachDefinition
           where: (def, win) -> !win
-          run: (def, win, name) =>
-            deleteDefinition(name)
-            "'#{name}'"
-          then: (msg) -> @finish if msg then 'Cleaned unused window definitions: ' + msg else 'No window definitions needed cleaning.'
+          run: (def) =>
+            deleteDefinition(def.name)
+            "'#{def.name}'"
+          then: (msg) => @finish if msg then 'Cleaned unused window definitions: ' + msg else 'No window definitions needed cleaning.'
 
     unnamed:
       desc: 'Go to a window having no definition'
@@ -608,7 +612,7 @@ class TabShepherd
 #        else
 #          getCommand('find').run.apply @, @args
     go:
-      desc: 'Perform either "find", "extract" or "focus", depending on the arguments and number of matches'
+      desc: 'Perform either "find", "extract" or "open", depending on the arguments and number of matches'
       type: 'Changing focus'
       examples:
         'ts go document': 'If there is one tab matching /document/, behave as "ts find document", else behave as "ts extract document".',
@@ -730,13 +734,13 @@ class TabShepherd
         withActiveTab (tab) =>
           existingWin = getDefinition name
           if existingWin?
-            tabs.move tab.id,
-              windowId: existingWin.id
-              index: -1
+            tabs.move tab.id, windowId: existingWin.id, index: -1, =>
+              @finish()
           else
             withNewWindow name, (win) =>
-              tabs.move tab.id, windowId: win.id, index: -1
-              tabs.remove win.tabs[win.tabs.length - 1].id, => @finish()
+              tabs.move tab.id, windowId: win.id, index: -1, =>
+                tabs.remove win.tabs[win.tabs.length - 1].id, =>
+                  @finish()
 #    _old_open:
 #      desc: 'Open a URL or search in a different window'
 #      type: 'Moving tabs'
@@ -929,9 +933,9 @@ class TabShepherd
             @finish "[#{cmds.join('/')}] Keep typing to narrow command results."
       run: () ->
         if (@args.length > 0)
-          @finish summarizeCommands @args[0]
+          @finish "/help.html?command=#{@args[0]}"
         else
-          @finish summarizeCommands true
+          @finish "/help.html"
 
 root = exports ? window
 root.TabShepherd = TabShepherd
