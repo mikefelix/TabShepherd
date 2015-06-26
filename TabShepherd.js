@@ -67,27 +67,7 @@
           return new Command(text, output).run();
         };
       })(this));
-      windows.onRemoved.addListener((function(_this) {
-        return function(windowId) {
-          return withExistingWindow(windowId, function(win) {
-            var def;
-            if ((getName(win) != null)) {
-              def = getDefinition(win);
-              return withHighlightedTab(win, function(tab) {
-                if (tab != null) {
-                  def.activeUrl = tab.url;
-                }
-                return storeDefinitions();
-              });
-            }
-          });
-        };
-      })(this));
     }
-
-    TabShepherd.prototype.commands = function() {
-      return commands;
-    };
 
     getCommandName = function(text) {
       var idx;
@@ -232,7 +212,7 @@
         msg += 'Syntax: ts <command> <arguments>\n\n';
       }
       msg += 'Possible commands:' + (full ? '\n' : ' ');
-      types = ['Moving tabs', 'Changing focus', 'Managing window definitions', 'Managing URL patterns', 'Help'];
+      types = ['Moving tabs', 'Changing focus', 'Managing window definitions', 'Managing URL patterns', 'Informational'];
       for (j = 0, len = types.length; j < len; j++) {
         type = types[j];
         if (full) {
@@ -287,18 +267,47 @@
     };
 
     storeDefinitions = function() {
-      return storage.set({
-        windowDefs: definitions
-      }, function() {
-        if (runtime.lastError) {
-          return alert(runtime.lastError);
+      return tabs.query({
+        index: 0
+      }, function(tabz) {
+        var def, j, len, name, tab;
+        for (name in definitions) {
+          if (!hasProp.call(definitions, name)) continue;
+          def = definitions[name];
+          for (j = 0, len = tabz.length; j < len; j++) {
+            tab = tabz[j];
+            if (tab.windowId === def.id) {
+              def.firstUrl = tab.url;
+            }
+          }
         }
+        return storage.set({
+          windowDefs: definitions
+        }, function() {
+          if (runtime.lastError) {
+            return alert(runtime.lastError);
+          }
+        });
       });
     };
 
     loadDefinitions = function(callback) {
       return storage.get('windowDefs', function(data) {
         definitions = data['windowDefs'] || {};
+        withEachDefinition({
+          where: function(def, win) {
+            return (win == null) && (def.firstUrl != null);
+          },
+          run: function(def) {
+            return tabs.query({
+              url: def.firstUrl
+            }, function(tabz) {
+              if (tabz != null ? tabz.length : void 0) {
+                return def.id = tabz[0].windowId;
+              }
+            });
+          }
+        });
         return callback();
       });
     };
@@ -758,7 +767,7 @@
         }).apply(this, arguments);
         status = makeText.apply(null, args);
         if (status != null) {
-          if (cmd.type === 'Help') {
+          if (this.name === 'help') {
             output(status);
           } else {
             output(this.name + ": " + status);
@@ -783,14 +792,14 @@
 
     })();
 
-    TabShepherd.prototype.commands = function() {
+    TabShepherd.prototype.getCommands = function() {
       return commands;
     };
 
     commands = {
       tabs: {
         desc: "Show active tab information",
-        type: 'Managing window definitions',
+        type: 'Informational',
         examples: {
           "ts tabs": "Show information on each active tab."
         },
@@ -818,7 +827,7 @@
       },
       wins: {
         desc: "Show window information",
-        type: 'Managing window definitions',
+        type: 'Informational',
         examples: {
           "ts tabs": "Show window information."
         },
@@ -844,7 +853,7 @@
       },
       window: {
         desc: "Show the current window's ID",
-        type: 'Managing window definitions',
+        type: 'Informational',
         examples: {
           "ts id": "Show the current window's ID."
         },
@@ -911,12 +920,15 @@
           return this.finish('Press enter to list the window definitions.');
         },
         run: function() {
+          if ((definitions != null ? definitions.toread : void 0) != null) {
+            console.log(Object.keys(definitions != null ? definitions.toread : void 0));
+          }
           return withEachDefinition({
             run: (function(_this) {
               return function(def, win) {
                 var winText;
                 winText = win != null ? 'window ' + win.id : 'no attached window';
-                return def.name + " (" + winText + ")";
+                return def.name + " (" + winText + ")\n" + def.firstUrl;
               };
             })(this),
             reduce: (function(_this) {
@@ -933,7 +945,7 @@
         }
       },
       "new": {
-        desc: 'Create a new empty window and assign it a definition',
+        desc: 'Create a new window and assign it a definition',
         type: 'Managing window definitions',
         examples: {
           'ts new cats': "Create a new window with definition named 'cats'.",
@@ -1250,7 +1262,9 @@
       find: {
         desc: 'Go to the first tab found matching a pattern, never moving tabs',
         type: 'Changing focus',
-        examples: "ts find google.com': 'Focus the first tab found to match 'google.com', or do nothing if no tab is found.",
+        examples: {
+          "ts find google.com": "Focus the first tab found to match 'google.com', or do nothing if no tab is found."
+        },
         help: function(pattern) {
           if (pattern == null) {
             return this.finish('Enter a pattern to find a tab.');
@@ -1423,6 +1437,7 @@
         desc: 'Extract tabs matching the pattern arguments into a new window named with that pattern',
         type: 'Moving tabs',
         examples: {
+          'ts extract google': "Create a new window \"google\", assign pattern 'google' to that definition, and move all tabs whose URLs match the pattern there.",
           'ts extract social facebook.com twitter.com': "Create a new window, give it a definition named 'social', assign patterns 'facebook.com' and 'twitter.com' to that definition, and move all tabs whose URLs match the patterns there. This is effectively \"ts new social\", followed by \"ts assign facebook.com twitter.com\", then \"ts bring\". "
         },
         help: function() {
@@ -1711,7 +1726,7 @@
       },
       help: {
         desc: 'Get help on a command',
-        type: 'Help',
+        type: 'Informational',
         examples: {
           'ts help bring': 'Show usage examples for the "bring" command.'
         },

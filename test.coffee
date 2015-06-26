@@ -66,16 +66,16 @@ reset = (testName) ->
       url: 'http://salty.com'
       title: ''
   defs =
-#    hello:
-#      id: 1
-#      name: 'hello'
-#      patterns: ['yellow', 'white']
-#      activeUrl: 'http://sweetthings.com'
+    hello:
+      id: 100 # Wrong ID on purpose so that the window will get attached by firstUrl
+      name: 'hello'
+      patterns: ['yellow', 'white']
+      firstUrl: 'http://sweetthings.com'
     goodbye:
       id: 2
       name: 'goodbye'
       patterns: ['blue']
-      activeUrl: 'http://sourthings.com'
+      firstUrl: 'http://sourthings.com'
   focusedWindowId = 1
   openWindows =
     1:
@@ -184,16 +184,20 @@ assertNoOutput = ->
   assert.fail("Expected no omniboxText, got '#{omniboxText}'") if omniboxText != null
   assert.fail("Expected no alertText, got '#{alertText}'") if alertText != null
 
-assertText = (text, holder) ->
-  out = if typeof text == 'object' and typeof text.test == 'function'
-    assert.fail("No match for #{text} in #{holder}") if !new RegExp(text).test holder
-  else if typeof text == 'string'
-    assert.equal text, holder
-  else
-    throw "Can't test a text of type #{typeof text}."
+assertText = (texts, holder) ->
+  run = (text) ->
+    if typeof text.push == 'function'
+      for t in text
+        run t
+    else if typeof text == 'object' and typeof text.test == 'function'
+      assert.fail("No match for #{text} in #{holder}") if !new RegExp(text).test holder
+    else if typeof text == 'string'
+      assert.equal text, holder
+    else
+      throw "Can't test a text of type #{typeof text}."
+  run texts
   omniboxText = null
   alertText = null
-  out
 
 expectSuggestionFor = (text, output) ->
   changeInput text
@@ -219,6 +223,8 @@ context "TabShepherd",
     reset('init')
 
     assert.equal 'object', typeof ts
+    assert.equal 'yellow', ts.getDefinition('hello').patterns[0]
+    assert.isTrue ts.getDefinition('hello').id != 100
     assert.equal 'blue', ts.getDefinition('goodbye').patterns[0]
     assert.fail("Input not changed") if !inputChanged?
     assert.fail("Input not entered") if !inputEntered?
@@ -250,14 +256,14 @@ context "help",
     changeInput 'help blah'
     assertOmni 'blah: No matching command found.'
     changeInput 'help find'
-    assertOmni 'find: ' + ts.commands()['find'].desc
+    assertOmni 'find: ' + ts.getCommands()['find'].desc
     changeInput 's'
-    assertOmni '[send/sort/split] Keep typing to narrow command results.'
+    assertOmni 's: [send/sort/split] Keep typing to narrow command results.'
 
 context "help",
   should "show help on a command", ->
     reset 'help'
-    for own name, cmd of ts.commands() when name != 'help'
+    for own name, cmd of ts.getCommands() when name != 'help'
       changeInput "help #{name}"
       assertOmni "#{name}: #{cmd.desc}"
 
@@ -299,18 +305,20 @@ context "defs/clear",
 
     reset('defs')
     expectSuggestionFor 'defs', 'Press enter to list the window definitions.'
-    expectResponseFor 'defs', "Named windows:\n\ngoodbye (window 2)"
+    enterInput 'defs'
+    assertText [/Named windows:/, /goodbye \(window 2\)/], alertText
 
     enterInput 'name hi'
-    expectResponseFor 'defs', "Named windows:\n\ngoodbye (window 2)\nhi (window 1)"
+    enterInput 'defs'
+    assertText [/Named windows:/, /goodbye \(window 2\)/, /hi \(window 1\)/], alertText
 
     expectSuggestionFor 'clear blah', 'Window definition "blah" not found.'
     expectSuggestionFor 'clear goodbye', 'Press enter to clear window definition "goodbye". Warning: currently assigned to a window.'
 
-    assert.equal 2, length(defs)
+    assert.equal 3, length(defs)
     assert.equal 'goodbye', defs['goodbye'].name
     expectResponseFor 'clear goodbye', 'Cleared window definition "goodbye" and removed it from a window.'
-    assert.equal 1, length(defs)
+    assert.equal 2, length(defs)
     assert.equal undefined, defs['goodbye']
 
 context "new",
@@ -481,6 +489,7 @@ context 'merge',
     assert.equal 4, currentWindow().tabs.length
     assert.equal undefined, ts.getDefinition('goodbye')
 
+###
 context 'sort',
   should 'sort tabs', ->
     reset 'sort'
@@ -493,6 +502,7 @@ context 'sort',
     assert.equal 2, currentWindow().tabs.length
     focusWindow 2
     assert.equal 3, currentWindow().tabs.length
+###
 
 
 

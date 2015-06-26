@@ -17,18 +17,6 @@ class TabShepherd
 
     storage.get 'windowDefs', (data) =>
       definitions = data['windowDefs'] or {}
-#      console.log "TabShepherd found defs:"
-#      console.dir definitions
-#      defMatchesWin = (def, win, activeTab) =>
-#        def.id == win.id or def.activeUrl == activeTab.url
-#
-#      withEachWindow
-#        run: (win) =>
-#          tabs.query windowId: win.id, active: true, (tabs) =>
-#            tab = tabs[0]
-#            for own defName, def of definitions when defMatchesWin(def, win, tab)
-#              win.name = defName
-#              win.def = def
 
     omnibox.onInputChanged.addListener (text, suggest) =>
       c = new Command text, (res) =>
@@ -44,15 +32,13 @@ class TabShepherd
             tabs.create windowId: win.id, url: url, =>
       new Command(text, output).run()
 
-    windows.onRemoved.addListener (windowId) =>
-      withExistingWindow windowId, (win) =>
-        if (getName(win)?)
-          def = getDefinition win
-          withHighlightedTab win, (tab) =>
-            def.activeUrl = tab.url if tab?
-            storeDefinitions()
-
-  commands: -> commands
+#    windows.onRemoved.addListener (windowId) =>
+#      withExistingWindow windowId, (win) =>
+#        if (getName(win)?)
+#          def = getDefinition win
+#          withHighlightedTab win, (tab) =>
+#            def.firstUrl = tab.url if tab?
+#            storeDefinitions()
 
   getCommandName = (text) ->
     idx = if text then text.indexOf(' ') else -1
@@ -128,7 +114,7 @@ class TabShepherd
       'Changing focus'
       'Managing window definitions'
       'Managing URL patterns'
-      'Help'
+      'Informational'
     ]
     for type in types
       msg += "  #{type}:\n" if full
@@ -153,13 +139,22 @@ class TabShepherd
 
   storeDefinitions: -> storeDefinitions()
   storeDefinitions = ->
-#    console.dir definitions
-    storage.set windowDefs: definitions, ->
-      alert runtime.lastError if runtime.lastError
+    tabs.query index: 0, (tabz) ->
+      for own name, def of definitions
+        for tab in tabz when tab.windowId == def.id
+          def.firstUrl = tab.url
+      storage.set windowDefs: definitions, ->
+#        console.dir definitions
+        alert runtime.lastError if runtime.lastError
 
   loadDefinitions = (callback) ->
     storage.get 'windowDefs', (data) ->
       definitions = data['windowDefs'] or {}
+      withEachDefinition
+        where: (def, win) -> !win? && def.firstUrl?
+        run: (def) ->
+          tabs.query url: def.firstUrl, (tabz) ->
+            def.id = tabz[0].windowId if tabz?.length
       callback()
 
   setName: (win, name) -> setName win, name
@@ -388,7 +383,7 @@ class TabShepherd
       args = (a for a in arguments)
       status = makeText args...
       if status?
-        if cmd.type == 'Help'
+        if @name == 'help'
           output status
         else
           output "#{@name}: #{status}"
@@ -403,11 +398,11 @@ class TabShepherd
       @exec cmd.help
 
 
-  commands: -> commands
+  getCommands: -> commands
   commands =
     tabs:
       desc: "Show active tab information"
-      type: 'Managing window definitions'
+      type: 'Informational'
       examples: "ts tabs": "Show information on each active tab."
       help: ->
         @finish "Press enter to see active tab information."
@@ -416,7 +411,7 @@ class TabShepherd
           @finish ("#{tab.windowId}: #{tab.url}" for tab in t).join("\n")
     wins:
       desc: "Show window information"
-      type: 'Managing window definitions'
+      type: 'Informational'
       examples: "ts tabs": "Show window information."
       help: ->
         @finish "Press enter to see window information."
@@ -425,7 +420,7 @@ class TabShepherd
           @finish ("#{win.id}: #{getName(win)}" for win in wins).join("\n")
     window:
       desc: "Show the current window's ID"
-      type: 'Managing window definitions'
+      type: 'Informational'
       examples: "ts id": "Show the current window's ID."
       help: ->
         withCurrentWindow (win) =>
@@ -465,17 +460,18 @@ class TabShepherd
         @finish 'Press enter to list the window definitions.'
       run: ->
 #        console.dir definitions
+        console.log Object.keys(definitions?.toread) if definitions?.toread?
         withEachDefinition
           run: (def, win) =>
             winText = if win? then 'window ' + win.id else 'no attached window'
-            "#{def.name} (#{winText})"
+            "#{def.name} (#{winText})\n#{def.firstUrl}"
           reduce: (msgs) =>
             msgs.join("\n")
           then: (text) =>
             @finish 'Named windows:\n\n%s', text
 
     new:
-      desc: 'Create a new empty window and assign it a definition'
+      desc: 'Create a new window and assign it a definition'
       type: 'Managing window definitions'
       examples:
         'ts new cats': "Create a new window with definition named 'cats'."
@@ -662,7 +658,7 @@ class TabShepherd
     find:
       desc: 'Go to the first tab found matching a pattern, never moving tabs'
       type: 'Changing focus'
-      examples: "ts find google.com': 'Focus the first tab found to match 'google.com', or do nothing if no tab is found."
+      examples: "ts find google.com": "Focus the first tab found to match 'google.com', or do nothing if no tab is found."
       help: (pattern) ->
         return @finish('Enter a pattern to find a tab.') if !pattern?
         withTabsMatching pattern, (matchingTabs) =>
@@ -768,7 +764,9 @@ class TabShepherd
     extract:
       desc: 'Extract tabs matching the pattern arguments into a new window named with that pattern'
       type: 'Moving tabs'
-      examples: 'ts extract social facebook.com twitter.com': "Create a new window, give it a definition named 'social', assign patterns 'facebook.com' and 'twitter.com' to that definition, and move all tabs whose URLs match the patterns there. This is effectively \"ts new social\", followed by \"ts assign facebook.com twitter.com\", then \"ts bring\". "
+      examples:
+        'ts extract google': "Create a new window \"google\", assign pattern 'google' to that definition, and move all tabs whose URLs match the pattern there."
+        'ts extract social facebook.com twitter.com': "Create a new window, give it a definition named 'social', assign patterns 'facebook.com' and 'twitter.com' to that definition, and move all tabs whose URLs match the patterns there. This is effectively \"ts new social\", followed by \"ts assign facebook.com twitter.com\", then \"ts bring\". "
       help: ->
         if @args.length == 0
           @finish 'Enter a name or pattern.'
@@ -913,7 +911,7 @@ class TabShepherd
           @finish "Patterns assigned to window %w:\n\n" + listPatterns(window), getName(window)
     help:
       desc: 'Get help on a command'
-      type: 'Help'
+      type: 'Informational'
       examples: 'ts help bring': 'Show usage examples for the "bring" command.'
       help: () ->
         if @name == 'help'

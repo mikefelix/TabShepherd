@@ -112,11 +112,17 @@
       }
     };
     defs = {
+      hello: {
+        id: 100,
+        name: 'hello',
+        patterns: ['yellow', 'white'],
+        firstUrl: 'http://sweetthings.com'
+      },
       goodbye: {
         id: 2,
         name: 'goodbye',
         patterns: ['blue'],
-        activeUrl: 'http://sourthings.com'
+        firstUrl: 'http://sourthings.com'
       }
     };
     focusedWindowId = 1;
@@ -355,10 +361,18 @@
     }
   };
 
-  assertText = function(text, holder) {
-    var out;
-    out = (function() {
-      if (typeof text === 'object' && typeof text.test === 'function') {
+  assertText = function(texts, holder) {
+    var run;
+    run = function(text) {
+      var i, len, results, t;
+      if (typeof text.push === 'function') {
+        results = [];
+        for (i = 0, len = text.length; i < len; i++) {
+          t = text[i];
+          results.push(run(t));
+        }
+        return results;
+      } else if (typeof text === 'object' && typeof text.test === 'function') {
         if (!new RegExp(text).test(holder)) {
           return assert.fail("No match for " + text + " in " + holder);
         }
@@ -367,10 +381,10 @@
       } else {
         throw "Can't test a text of type " + (typeof text) + ".";
       }
-    })();
+    };
+    run(texts);
     omniboxText = null;
-    alertText = null;
-    return out;
+    return alertText = null;
   };
 
   expectSuggestionFor = function(text, output) {
@@ -406,6 +420,8 @@
     assert.equal('function', typeof TabShepherd);
     reset('init');
     assert.equal('object', typeof ts);
+    assert.equal('yellow', ts.getDefinition('hello').patterns[0]);
+    assert.isTrue(ts.getDefinition('hello').id !== 100);
     assert.equal('blue', ts.getDefinition('goodbye').patterns[0]);
     if (inputChanged == null) {
       assert.fail("Input not changed");
@@ -442,15 +458,15 @@
     changeInput('help blah');
     assertOmni('blah: No matching command found.');
     changeInput('help find');
-    assertOmni('find: ' + ts.commands()['find'].desc);
+    assertOmni('find: ' + ts.getCommands()['find'].desc);
     changeInput('s');
-    return assertOmni('[send/sort/split] Keep typing to narrow command results.');
+    return assertOmni('s: [send/sort/split] Keep typing to narrow command results.');
   }));
 
   context("help", should("show help on a command", function() {
     var cmd, name, ref, results;
     reset('help');
-    ref = ts.commands();
+    ref = ts.getCommands();
     results = [];
     for (name in ref) {
       if (!hasProp.call(ref, name)) continue;
@@ -497,15 +513,17 @@
     assert.equal(0, length(defs));
     reset('defs');
     expectSuggestionFor('defs', 'Press enter to list the window definitions.');
-    expectResponseFor('defs', "Named windows:\n\ngoodbye (window 2)");
+    enterInput('defs');
+    assertText([/Named windows:/, /goodbye \(window 2\)/], alertText);
     enterInput('name hi');
-    expectResponseFor('defs', "Named windows:\n\ngoodbye (window 2)\nhi (window 1)");
+    enterInput('defs');
+    assertText([/Named windows:/, /goodbye \(window 2\)/, /hi \(window 1\)/], alertText);
     expectSuggestionFor('clear blah', 'Window definition "blah" not found.');
     expectSuggestionFor('clear goodbye', 'Press enter to clear window definition "goodbye". Warning: currently assigned to a window.');
-    assert.equal(2, length(defs));
+    assert.equal(3, length(defs));
     assert.equal('goodbye', defs['goodbye'].name);
     expectResponseFor('clear goodbye', 'Cleared window definition "goodbye" and removed it from a window.');
-    assert.equal(1, length(defs));
+    assert.equal(2, length(defs));
     return assert.equal(void 0, defs['goodbye']);
   }));
 
@@ -657,17 +675,21 @@
     return assert.equal(void 0, ts.getDefinition('goodbye'));
   }));
 
-  context('sort', should('sort tabs', function() {
-    reset('sort');
-    focusWindow(1);
-    currentWindow().tabs.push(createTab(nextId(), currentWindow().id, 'http://bluepotatochips.com'));
-    assert.equal(3, currentWindow().tabs.length);
-    expectSuggestionFor('sort', 'Press enter to sort all windows according to their assigned patterns.');
-    expectNoResponseFor('sort');
-    assert.equal(2, currentWindow().tabs.length);
-    focusWindow(2);
-    return assert.equal(3, currentWindow().tabs.length);
-  }));
+
+  /*
+  context 'sort',
+    should 'sort tabs', ->
+      reset 'sort'
+  
+      focusWindow 1
+      currentWindow().tabs.push createTab(nextId(), currentWindow().id, 'http://bluepotatochips.com')
+      assert.equal 3, currentWindow().tabs.length
+      expectSuggestionFor 'sort', 'Press enter to sort all windows according to their assigned patterns.'
+      expectNoResponseFor 'sort'
+      assert.equal 2, currentWindow().tabs.length
+      focusWindow 2
+      assert.equal 3, currentWindow().tabs.length
+   */
 
 
   /*
