@@ -505,7 +505,7 @@ class TabShepherd
         'ts clear recipes': "Remove the window definition 'recipes'. No tabs are affected."
         'ts clear *': "Remove all window definitions from storage. No tabs are affected."
       help: (name) ->
-        return @finish('Enter a window definition name to remove.') if !name?
+        return @finish('Enter a window name or * to remove all.') if !name?
         return @finish('Press enter to clear all saved window definitions.') if name == '*'
         withWindowNamed name, (win) =>
           if win?
