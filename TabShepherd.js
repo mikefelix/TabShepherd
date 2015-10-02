@@ -5,7 +5,7 @@
     slice = [].slice;
 
   TabShepherd = (function() {
-    var Command, alert, assignPattern, commands, containsPattern, definitions, deleteDefinition, focus, getArgs, getCommand, getCommandName, getDefForPattern, getDefinition, getId, getName, getPossibleCommands, isRegex, listPatterns, loadDefinitions, makeText, omnibox, plur, runtime, setName, showExamples, storage, storeDefinitions, summarizeCommands, tabs, unassignPattern, windowMatching, windows, withActiveTab, withCurrentWindow, withEachDefinition, withEachWindow, withExistingWindow, withHighlightedTab, withNewWindow, withTabsMatching, withWindow, withWindowForPattern, withWindowNamed;
+    var Command, alert, assignPattern, commands, containsPattern, countWindowsAndTabs, definitions, deleteDefinition, focus, getArgs, getCommand, getCommandName, getDefForPattern, getDefinition, getId, getName, getPossibleCommands, inputChanged, inputEntered, isRegex, lastCommand, listPatterns, loadDefinitions, makeText, matchesAny, omnibox, plur, runtime, setName, showExamples, storage, storeDefinitions, summarizeCommands, tabs, unassignPattern, windowMatching, windows, withActiveTab, withCurrentWindow, withEachDefinition, withEachWindow, withExistingWindow, withHighlightedTab, withNewWindow, withTabsMatching, withWindow, withWindowForPattern, withWindowNamed;
 
     storage = null;
 
@@ -21,6 +21,8 @@
 
     alert = null;
 
+    lastCommand = null;
+
     function TabShepherd(chrome, _alert) {
       storage = chrome.storage.local;
       omnibox = chrome.omnibox;
@@ -33,41 +35,45 @@
           return definitions = data['windowDefs'] || {};
         };
       })(this));
-      omnibox.onInputChanged.addListener((function(_this) {
-        return function(text, suggest) {
-          var c;
-          c = new Command(text, function(res) {
-            if (res) {
-              return suggest([
-                {
-                  content: ' ',
-                  description: res
-                }
-              ]);
-            }
-          });
-          return c.help();
-        };
-      })(this));
-      omnibox.onInputEntered.addListener((function(_this) {
-        return function(text) {
-          var output;
-          output = getCommandName(text) !== 'help' ? function(res) {
-            if (res) {
-              return alert(res);
-            }
-          } : function(url) {
-            return withCurrentWindow(function(win) {
-              return tabs.create({
-                windowId: win.id,
-                url: url
-              }, function() {});
-            });
-          };
-          return new Command(text, output).run();
-        };
-      })(this));
+      omnibox.onInputChanged.addListener(inputChanged);
+      omnibox.onInputEntered.addListener(inputEntered);
     }
+
+    inputChanged = function(text, suggest) {
+      var c;
+      c = new Command(text, function(res) {
+        if (res) {
+          return suggest([
+            {
+              content: ' ',
+              description: res
+            }
+          ]);
+        }
+      });
+      return c.help();
+    };
+
+    inputEntered = function(text) {
+      var output;
+      console.log("Entered command: " + text);
+      output = getCommandName(text) !== 'help' ? function(res) {
+        if (res) {
+          return alert(res);
+        }
+      } : function(url) {
+        return withCurrentWindow(function(win) {
+          return tabs.create({
+            windowId: win.id,
+            url: url
+          }, function() {});
+        });
+      };
+      if (text !== '.') {
+        lastCommand = text;
+      }
+      return new Command(text, output).run();
+    };
 
     getCommandName = function(text) {
       var idx;
@@ -233,6 +239,10 @@
       return msg;
     };
 
+    TabShepherd.prototype.focus = function(win) {
+      return focus(win);
+    };
+
     focus = function(win) {
       return windows.update(win.id, {
         focused: true
@@ -250,8 +260,10 @@
     getDefinition = function(nameOrWin) {
       var def, name;
       if (typeof nameOrWin === 'string') {
+        console.log("A " + nameOrWin + " (" + definitions[nameOrWin] + ") (" + definitions['work'] + ") " + (Object.keys(definitions)));
         return definitions[nameOrWin];
       } else if (nameOrWin.id != null) {
+        console.log("B " + nameOrWin.id);
         for (name in definitions) {
           if (!hasProp.call(definitions, name)) continue;
           def = definitions[name];
@@ -471,8 +483,64 @@
       });
     };
 
+    TabShepherd.prototype.countWindowsAndTabs = function(cb) {
+      return countWindowsAndTabs(cb);
+    };
+
+    countWindowsAndTabs = function(cb) {
+      return tabs.query({
+        status: 'complete',
+        windowType: 'normal'
+      }, (function(_this) {
+        return function(results) {
+          var grouped, id, j, len, ref, ref1, tab;
+          grouped = {};
+          for (j = 0, len = results.length; j < len; j++) {
+            tab = results[j];
+            id = tab.windowId;
+            if (!grouped[id]) {
+              grouped[id] = [];
+            }
+            grouped[id].tabs = ((ref = grouped[id].tabs) != null ? ref : 0) + 1;
+            grouped[id].name = (ref1 = getName(id)) != null ? ref1 : "(unnamed)";
+            grouped[id].id = id;
+          }
+          return cb(grouped);
+        };
+      })(this));
+    };
+
+    matchesAny = function(tab, patterns) {
+      var j, len, p, r;
+      for (j = 0, len = patterns.length; j < len; j++) {
+        p = patterns[j];
+        if (typeof p === 'boolean') {
+          return p;
+        }
+        if (typeof p === 'function') {
+          if (p(tab)) {
+            return true;
+          }
+        } else if (/^\/.+\/$/.test(p)) {
+          r = new RegExp(p.substring(1, p.length - 1));
+          if (r.test(tab.url) || r.test(tab.title)) {
+            return true;
+          }
+        } else if (isRegex(p)) {
+          r = new RegExp(p);
+          if (r.test(tab.url) || r.test(tab.title)) {
+            return true;
+          }
+        } else {
+          if (tab.url.toLowerCase().search(p) > -1 || tab.title.toLowerCase().search(p) > -1) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
     withTabsMatching = function(patterns, callback) {
-      var matches;
       if (!patterns) {
         return callback([]);
       }
@@ -482,34 +550,6 @@
       if (patterns.length === 0 || patterns[0] === '') {
         return callback([]);
       }
-      matches = (function(_this) {
-        return function(tab) {
-          var j, len, p, r;
-          for (j = 0, len = patterns.length; j < len; j++) {
-            p = patterns[j];
-            if (typeof p === 'function') {
-              if (p(tab)) {
-                return true;
-              }
-            } else if (/^\/.+\/$/.test(p)) {
-              r = new RegExp(p.substring(1, p.length - 1));
-              if (r.test(tab.url) || r.test(tab.title)) {
-                return true;
-              }
-            } else if (isRegex(p)) {
-              r = new RegExp(p);
-              if (r.test(tab.url) || r.test(tab.title)) {
-                return true;
-              }
-            } else {
-              if (tab.url.toLowerCase().search(p) > -1 || tab.title.toLowerCase().search(p) > -1) {
-                return true;
-              }
-            }
-          }
-          return false;
-        };
-      })(this);
       return tabs.query({
         status: 'complete',
         windowType: 'normal'
@@ -521,7 +561,7 @@
             results1 = [];
             for (j = 0, len = results.length; j < len; j++) {
               tab = results[j];
-              if (matches(tab)) {
+              if (matchesAny(tab, patterns)) {
                 results1.push(tab.id);
               }
             }
@@ -604,6 +644,10 @@
         where: windowMatching(arg),
         run: callback
       });
+    };
+
+    TabShepherd.prototype.withWindow = function(arg, callback) {
+      return withWindow(arg, callback);
     };
 
     withWindow = function(arg, callback) {
@@ -920,9 +964,6 @@
           return this.finish('Press enter to list the window definitions.');
         },
         run: function() {
-          if ((definitions != null ? definitions.toread : void 0) != null) {
-            console.log(Object.keys(definitions != null ? definitions.toread : void 0));
-          }
           return withEachDefinition({
             run: (function(_this) {
               return function(def, win) {
@@ -1007,7 +1048,7 @@
         },
         help: function(name) {
           if (name == null) {
-            return this.finish('Enter a window definition name to remove.');
+            return this.finish('Enter a window name or * to remove all.');
           }
           if (name === '*') {
             return this.finish('Press enter to clear all saved window definitions.');
@@ -1176,14 +1217,16 @@
           'ts go "work"': 'If there is a window named "work", behave as "ts open work", otherwise behave as "ts new work".'
         },
         help: function(pattern, name) {
+          var win;
           if (name == null) {
             name = pattern;
           }
           if (/^"/.test(pattern)) {
-            if (!getDefinition(name)) {
-              return this.finish("Press enter to create a new window named %w", name.replace(/"/g, ""));
+            win = pattern.replace(/"/g, '');
+            if (getDefinition(win) == null) {
+              return this.finish("Press enter to create a new window named %w", win);
             } else {
-              return this.finish("Press enter to focus window %w.", name.replace(/"/g, ""));
+              return this.finish("Press enter to focus window %w.", win);
             }
           } else {
             return withTabsMatching(pattern, (function(_this) {
@@ -1200,20 +1243,20 @@
           }
         },
         run: function(pattern, name) {
-          var win;
+          var winName;
           if (name == null) {
             name = pattern;
           }
           if (/^"/.test(pattern)) {
-            win = pattern.replace(/"/g, "");
-            if (!getDefinition(name)) {
-              return withNewWindow(name, (function(_this) {
+            winName = pattern.replace(/"/g, '');
+            if (getDefinition(winName) == null) {
+              return withNewWindow(winName, (function(_this) {
                 return function() {
                   return _this.finish();
                 };
               })(this));
             } else {
-              return withWindow(name, (function(_this) {
+              return withWindow(winName, (function(_this) {
                 return function(win) {
                   if (win == null) {
                     _this.finish("Window not found: %w.", name);
@@ -1390,6 +1433,38 @@
           })(this));
         }
       },
+      group: {
+        desc: 'Attempt to sort the current tab into a window according to pattern',
+        type: 'Moving tabs',
+        examples: {
+          'ts group': "Match the current tab's URL and title against defined window patterns and send it to the first window that matches."
+        },
+        help: function() {
+          return this.finish("Press enter to attempt to group this tab according to the defined window patterns.");
+        },
+        run: function() {
+          var moved;
+          moved = false;
+          return withActiveTab((function(_this) {
+            return function(tab) {
+              return withEachDefinition({
+                where: function(def, win) {
+                  return !moved && win.id !== tab.windowId && matchesAny(tab, def.patterns || []);
+                },
+                run: function(def, win) {
+                  return tabs.move(tab.id, {
+                    windowId: win.id,
+                    index: -1
+                  }, function() {
+                    moved = true;
+                    return _this.finish();
+                  });
+                }
+              });
+            };
+          })(this));
+        }
+      },
       send: {
         desc: 'Send the current tab to the window named in the argument, creating the window if necessary',
         type: 'Moving tabs',
@@ -1537,7 +1612,7 @@
         },
         help: function(name) {
           if (name == null) {
-            return this.finish('Enter a defined window name.');
+            return this.finish('Enter a defined window name, or press enter to merge the window with the fewest tabs.');
           }
           return withWindow(name, (function(_this) {
             return function(win) {
@@ -1557,10 +1632,8 @@
           })(this));
         },
         run: function(name) {
-          if (name == null) {
-            return this.finish('Enter a defined window name.');
-          }
-          return withWindow(name, (function(_this) {
+          var doIt;
+          doIt = (function(_this) {
             return function(win) {
               if (win == null) {
                 return _this.finish('No such window %w', name);
@@ -1593,7 +1666,33 @@
                 });
               });
             };
-          })(this));
+          })(this);
+          if (name == null) {
+            return countWindowsAndTabs((function(_this) {
+              return function(info) {
+                var inf, k, smallest;
+                smallest = null;
+                for (k in info) {
+                  if (!hasProp.call(info, k)) continue;
+                  inf = info[k];
+                  if (inf.tabs < smallest.tabs) {
+                    smallest = inf;
+                  }
+                }
+                if (smallest != null) {
+                  return withWindow(smallest.name, function(win) {
+                    return doIt(win);
+                  });
+                }
+              };
+            })(this));
+          } else {
+            return withWindow(name, (function(_this) {
+              return function(win) {
+                return doIt(win);
+              };
+            })(this));
+          }
         }
       },
       split: {
@@ -1722,6 +1821,27 @@
               return _this.finish("Patterns assigned to window %w:\n\n" + listPatterns(window), getName(window));
             };
           })(this));
+        }
+      },
+      '.': {
+        desc: 'Repeat the previously executed command.',
+        type: 'Informational',
+        examples: {
+          'ts .': 'Repeat the previously executed command.'
+        },
+        help: function() {
+          if (lastCommand != null) {
+            return this.finish("Press enter to run the previous command: " + lastCommand);
+          } else {
+            return this.finish("No previous command found.");
+          }
+        },
+        run: function() {
+          if ((lastCommand != null) && lastCommand !== '.') {
+            return this.finish(inputEntered(lastCommand));
+          } else {
+            return this.finish("No previous command found.");
+          }
         }
       },
       help: {

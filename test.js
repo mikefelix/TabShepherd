@@ -664,12 +664,19 @@
     return assert.equal(11, currentWindow().id);
   }));
 
-  context('merge', should('merge windows', function() {
+  context('merge', should('merge window by name', function() {
     reset('merge');
     focusWindow(1);
     ts.setName(currentWindow(), 'hello');
-    expectSuggestionFor('merge', 'Enter a defined window name.');
     expectSuggestionFor('merge goodbye', 'Press enter to move 2 tabs and 1 pattern from window "goodbye" to this window "hello".');
+    expectNoResponseFor('merge goodbye');
+    assert.equal(4, currentWindow().tabs.length);
+    return assert.equal(void 0, ts.getDefinition('goodbye'));
+  }), should('merge default window', function() {
+    reset('merge');
+    focusWindow(1);
+    ts.setName(currentWindow(), 'hello');
+    expectSuggestionFor('merge', 'Enter a defined window name, or press enter to merge the window with the fewest tabs.');
     expectNoResponseFor('merge goodbye');
     assert.equal(4, currentWindow().tabs.length);
     return assert.equal(void 0, ts.getDefinition('goodbye'));

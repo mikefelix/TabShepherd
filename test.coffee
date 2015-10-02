@@ -478,13 +478,22 @@ context 'open',
     assert.equal 11, currentWindow().id
 
 context 'merge',
-  should 'merge windows', ->
+  should 'merge window by name', ->
     reset 'merge'
 
     focusWindow 1
     ts.setName currentWindow(), 'hello'
-    expectSuggestionFor 'merge', 'Enter a defined window name.'
     expectSuggestionFor 'merge goodbye', 'Press enter to move 2 tabs and 1 pattern from window "goodbye" to this window "hello".'
+    expectNoResponseFor 'merge goodbye'
+    assert.equal 4, currentWindow().tabs.length
+    assert.equal undefined, ts.getDefinition('goodbye')
+
+  should 'merge default window', ->
+    reset 'merge'
+
+    focusWindow 1
+    ts.setName currentWindow(), 'hello'
+    expectSuggestionFor 'merge', 'Enter a defined window name, or press enter to merge the window with the fewest tabs.'
     expectNoResponseFor 'merge goodbye'
     assert.equal 4, currentWindow().tabs.length
     assert.equal undefined, ts.getDefinition('goodbye')

@@ -2,18 +2,23 @@ ts = new TabShepherd chrome, window.alert
 popup = angular.module 'TabShepPopup', []
 
 popup.controller 'PopupController', ($scope) ->
-  ts.withCurrentWindow (win) ->
-    $scope.name = ts.getName(win) ? ''
-    if $scope.name
-      $scope.def = ts.getDefinition $scope.name
-      $scope.def.patterns = [] if $scope.def? and !$scope.def.patterns?
-      console.dir $scope.def.patterns if $scope.def?.patterns?
-    $scope.$digest();
+  $scope.init = (win) ->
+    ts.withCurrentWindow (win) ->
+      $scope.currentWindow = win
+      $scope.name = ts.getName(win) ? ''
+      if $scope.name
+        $scope.def = ts.getDefinition $scope.name
+        $scope.def.patterns = [] if $scope.def? and !$scope.def.patterns?
+        #console.dir $scope.def.patterns if $scope.def?.patterns?
+      ts.countWindowsAndTabs (info) ->
+        $scope.winInfo = info
+        $scope.$digest()
 
   $scope.setName = ->
     ts.withCurrentWindow (win) ->
       ts.setName win, $scope.name
       ts.storeDefinitions()
+      $scope.init()
 
   $scope.addPattern = ->
     $scope.def.patterns.push $scope.newPattern
@@ -21,6 +26,14 @@ popup.controller 'PopupController', ($scope) ->
       ts.assignPattern win, $scope.newPattern
       $scope.newPattern = ''
       ts.storeDefinitions()
+      $scope.$digest()
+
+  $scope.goToWindow = (id) ->
+    ts.withWindow id - 0, (win) ->
+      $scope.currentWindow = win
+      ts.focus win
+
+  $scope.init()
 
 #$ = (id) -> document.getElementById id
 #

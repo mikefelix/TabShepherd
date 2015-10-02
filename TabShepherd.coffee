@@ -6,6 +6,7 @@ class TabShepherd
   runtime = null
   definitions = null
   alert = null
+  lastCommand = null
 
   constructor: (chrome, _alert) ->
     storage = chrome.storage.local
@@ -18,27 +19,24 @@ class TabShepherd
     storage.get 'windowDefs', (data) =>
       definitions = data['windowDefs'] or {}
 
-    omnibox.onInputChanged.addListener (text, suggest) =>
-      c = new Command text, (res) =>
-        suggest [ content: ' ', description: res ] if res
-      c.help()
+    omnibox.onInputChanged.addListener inputChanged
+    omnibox.onInputEntered.addListener inputEntered
 
-    omnibox.onInputEntered.addListener (text) =>
-      output = if getCommandName(text) != 'help'
-        (res) => alert res if res
-      else
-        (url) =>
-          withCurrentWindow (win) =>
-            tabs.create windowId: win.id, url: url, =>
-      new Command(text, output).run()
+  inputChanged = (text, suggest) =>
+    c = new Command text, (res) =>
+      suggest [ content: ' ', description: res ] if res
+    c.help()
 
-#    windows.onRemoved.addListener (windowId) =>
-#      withExistingWindow windowId, (win) =>
-#        if (getName(win)?)
-#          def = getDefinition win
-#          withHighlightedTab win, (tab) =>
-#            def.firstUrl = tab.url if tab?
-#            storeDefinitions()
+  inputEntered = (text) =>
+    console.log "Entered command: #{text}"
+    output = if getCommandName(text) != 'help'
+      (res) => alert res if res
+    else
+      (url) =>
+        withCurrentWindow (win) =>
+          tabs.create windowId: win.id, url: url, =>
+    lastCommand = text if text != '.'
+    new Command(text, output).run()
 
   getCommandName = (text) ->
     idx = if text then text.indexOf(' ') else -1
@@ -125,6 +123,7 @@ class TabShepherd
           msg += name + ' '
     msg
 
+  focus: (win) -> focus win
   focus = (win) -> windows.update win.id, focused: true, ->
 
   deleteDefinition = (name) -> delete definitions[name]
@@ -237,27 +236,41 @@ class TabShepherd
       run: callback
       otherwise: callback
 
+  countWindowsAndTabs: (cb) -> countWindowsAndTabs cb
+  countWindowsAndTabs = (cb) ->
+    tabs.query status: 'complete', windowType: 'normal', (results) =>
+      grouped = {}
+      for tab in results
+        id = tab.windowId
+        grouped[id] = [] if !grouped[id]
+        grouped[id].tabs = (grouped[id].tabs ? 0) + 1
+        grouped[id].name = getName(id) ? "(unnamed)"
+        grouped[id].id = id
+      cb grouped
+
+  matchesAny = (tab, patterns) =>
+    for p in patterns
+      if typeof p == 'boolean'
+        return p
+      if typeof p == 'function'
+        return true if p(tab)
+      else if /^\/.+\/$/.test(p)
+        r = new RegExp(p.substring(1, p.length - 1))
+        return true if r.test(tab.url) or r.test(tab.title)
+      else if isRegex p
+        r = new RegExp(p)
+        return true if r.test(tab.url) or r.test(tab.title)
+      else
+        return true if tab.url.toLowerCase().search(p) > -1 or tab.title.toLowerCase().search(p) > -1
+    false
+
   withTabsMatching = (patterns, callback) ->
     return callback([]) if !patterns
     patterns = [ patterns ] if typeof patterns == 'string' or typeof patterns == 'function'
     return callback([]) if patterns.length == 0 or patterns[0] == ''
 
-    matches = (tab) =>
-      for p in patterns
-        if typeof p == 'function'
-          return true if p(tab)
-        else if /^\/.+\/$/.test(p)
-          r = new RegExp(p.substring(1, p.length - 1))
-          return true if r.test(tab.url) or r.test(tab.title)
-        else if isRegex p
-          r = new RegExp(p)
-          return true if r.test(tab.url) or r.test(tab.title)
-        else
-          return true if tab.url.toLowerCase().search(p) > -1 or tab.title.toLowerCase().search(p) > -1
-      false
-
     tabs.query status: 'complete', windowType: 'normal', (results) =>
-      callback(tab.id for tab in results when matches(tab))
+      callback(tab.id for tab in results when matchesAny(tab, patterns))
 
   withEachWindow = (args) ->
     condition = args.where or -> true
@@ -289,6 +302,7 @@ class TabShepherd
       where: windowMatching arg
       run: callback
 
+  withWindow: (arg, callback) -> withWindow arg, callback
   withWindow = (arg, callback) ->
     withEachWindow
       where: windowMatching arg
@@ -459,8 +473,6 @@ class TabShepherd
       help: ->
         @finish 'Press enter to list the window definitions.'
       run: ->
-#        console.dir definitions
-        console.log Object.keys(definitions?.toread) if definitions?.toread?
         withEachDefinition
           run: (def, win) =>
             winText = if win? then 'window ' + win.id else 'no attached window'
@@ -616,10 +628,11 @@ class TabShepherd
       help: (pattern, name) ->
         name = pattern if !name?
         if /^"/.test pattern
-          if !getDefinition(name)
-            @finish "Press enter to create a new window named %w", name.replace(/"/g, "")
+          win = pattern.replace /"/g, ''
+          if !getDefinition(win)?
+            @finish "Press enter to create a new window named %w", win
           else
-            @finish "Press enter to focus window %w.", name.replace(/"/g, "")
+            @finish "Press enter to focus window %w.", win
         else
           withTabsMatching pattern, (matchingTabsIds) =>
             if matchingTabsIds.length == 1
@@ -631,12 +644,12 @@ class TabShepherd
       run: (pattern, name) ->
         name = pattern if !name?
         if /^"/.test pattern
-          win = pattern.replace(/"/g, "")
-          if !getDefinition(name)
-            withNewWindow name, =>
+          winName = pattern.replace /"/g, ''
+          if !getDefinition(winName)?
+            withNewWindow winName, =>
               @finish()
           else
-            withWindow name, (win) =>
+            withWindow winName, (win) =>
               @finish "Window not found: %w.", name if !win?
               focus win
               @finish()
@@ -716,6 +729,21 @@ class TabShepherd
               @finish 'No tabs found matching %s:\n\n%s', plur(type, patterns.length), (makeText("%p", pat) for pat in patterns).join("\n")
             else
               tabs.move matchingTabs, windowId: win.id, index: -1, => @finish()
+    group:
+      desc: 'Attempt to sort the current tab into a window according to pattern'
+      type: 'Moving tabs'
+      examples: 'ts group': "Match the current tab's URL and title against defined window patterns and send it to the first window that matches."
+      help: () ->
+        @finish "Press enter to attempt to group this tab according to the defined window patterns."
+      run: () ->
+        moved = false
+        withActiveTab (tab) =>
+          withEachDefinition
+            where: (def, win) -> not moved and win.id != tab.windowId and matchesAny(tab, def.patterns or [])
+            run: (def, win) =>
+              tabs.move tab.id, windowId: win.id, index: -1, =>
+                moved = true
+                @finish()
     send:
       desc: 'Send the current tab to the window named in the argument, creating the window if necessary'
       type: 'Moving tabs'
@@ -815,7 +843,7 @@ class TabShepherd
       type: 'Moving tabs'
       examples: 'ts merge restaurants': "Move all the tabs and patterns from window 'restaurants' into the current window and remove the 'restaurants' definition."
       help: (name) ->
-        return @finish 'Enter a defined window name.' if !name?
+        return @finish 'Enter a defined window name, or press enter to merge the window with the fewest tabs.' if !name?
         withWindow name, (win) =>
           return @finish 'No such window %w', name if !win?
           withTabsMatching ((tab) -> tab.windowId == win.id), (tabz) =>
@@ -823,8 +851,7 @@ class TabShepherd
             withCurrentWindow (currWin) =>
               @finish 'Press enter to move %s and %s from window %w to this window %w.', plur('tab', tabz.length), plur('pattern', patterns.length), name, getName(currWin)
       run: (name) ->
-        return @finish 'Enter a defined window name.' if !name?
-        withWindow name, (win) =>
+        doIt = (win) =>
           return @finish 'No such window %w', name if !win?
           withTabsMatching ((tab) -> tab.windowId == win.id), (tabz) =>
             def = getDefinition win
@@ -836,6 +863,16 @@ class TabShepherd
                 currDef.patterns.push p
               tabs.move tabz, windowId: currWin.id, index: -1, =>
                 delete definitions[name]
+        if !name?
+          countWindowsAndTabs (info) =>
+            smallest = null
+            for own k, inf of info
+              smallest = inf if inf.tabs < smallest.tabs
+            if smallest?
+              withWindow smallest.name, (win) => doIt win
+        else
+          withWindow name, (win) => doIt win
+
     split:
       desc: 'Split a window in two, moving half of the tabs to a new window.'
       type: 'Moving tabs'
@@ -909,6 +946,20 @@ class TabShepherd
       run: ->
         withCurrentWindow (window) =>
           @finish "Patterns assigned to window %w:\n\n" + listPatterns(window), getName(window)
+    '.':
+      desc: 'Repeat the previously executed command.'
+      type: 'Informational'
+      examples: 'ts .': 'Repeat the previously executed command.'
+      help: () ->
+        if lastCommand?
+          @finish "Press enter to run the previous command: #{lastCommand}"
+        else
+          @finish "No previous command found."
+      run: () ->
+        if lastCommand? and lastCommand != '.'
+          @finish inputEntered(lastCommand)
+        else
+          @finish "No previous command found."
     help:
       desc: 'Get help on a command'
       type: 'Informational'

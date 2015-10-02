@@ -8,7 +8,9 @@
   <head>
     <title>Tab Shepherd</title>
     <style>
-
+        .current {
+            font-weight: bold;
+        }
     </style>
 
     <!--
@@ -23,7 +25,7 @@
   <body ng-app="TabShepPopup">
     <div id="tsTitle">TabShepherd</div>
     <div id="status" ng-controller="PopupController">
-        <div id="definition">
+        <div class="heading" id="definition">
             This window is named: <input type="text" id="name" style="width:100px" ng-model="name"/>
             <input type="button" id="setName" value="Set" ng-click="setName()" ng-disabled="def.name == name"/>
         </div>
@@ -37,6 +39,15 @@
             <input type="text" id="newPattern" style="width:200px" ng-model="newPattern"/>
             <input type="button" id="addPattern" value="Add" ng-click="addPattern()" ng-disabled="!newPattern"/>
         </div>
+        <div class="heading">
+            Windows:
+        </div>
+        <div ng-repeat="(id, win) in winInfo">
+            {{id}} <a ng-class="{current: currentWindow.id == id}" ng-click="goToWindow(id)" style="cursor:pointer">{{win.name}}</a>: {{win.tabs}} tabs
+        </div>
+        <!--<div>-->
+            <!--<input type="button" id="reset" value="Reset" ng-click="init()" />-->
+        <!--</div>-->
     </div>
 
     <script src="popup.js"></script>
