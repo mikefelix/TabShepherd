@@ -5,7 +5,7 @@
     slice = [].slice;
 
   TabShepherd = (function() {
-    var Command, alert, assignPattern, commands, containsPattern, countWindowsAndTabs, definitions, deleteDefinition, focus, getArgs, getCommand, getCommandName, getDefForPattern, getDefinition, getId, getName, getPossibleCommands, inputChanged, inputEntered, isRegex, lastCommand, listPatterns, loadDefinitions, makeText, matchesAny, omnibox, plur, runtime, setName, showExamples, storage, storeDefinitions, summarizeCommands, tabs, unassignPattern, windowMatching, windows, withActiveTab, withCurrentWindow, withEachDefinition, withEachWindow, withExistingWindow, withHighlightedTab, withNewWindow, withTabsMatching, withWindow, withWindowForPattern, withWindowNamed;
+    var Command, activateDefinition, alert, assignPattern, commands, containsPattern, countWindowsAndTabs, definitions, deleteDefinition, focus, getArgs, getCommand, getCommandName, getDefForPattern, getDefinition, getId, getName, getPossibleCommands, inputChanged, inputEntered, isRegex, lastCommand, listPatterns, loadDefinitions, makeText, matchesAny, omnibox, plur, runtime, setName, showExamples, storage, storeDefinitions, summarizeCommands, tabs, unassignPattern, windowMatching, windows, withActiveTab, withCurrentWindow, withEachDefinition, withEachWindow, withExistingWindow, withHighlightedTab, withInactiveDefinitions, withNewWindow, withTabsMatching, withWindow, withWindowForPattern, withWindowNamed;
 
     storage = null;
 
@@ -249,6 +249,18 @@
       }, function() {});
     };
 
+    TabShepherd.prototype.activateDefinition = function(name) {
+      return activateDefinition(name);
+    };
+
+    activateDefinition = function(name) {
+      return withNewWindow(name);
+    };
+
+    TabShepherd.prototype.deleteDefinition = function(name) {
+      return deleteDefinition(name);
+    };
+
     deleteDefinition = function(name) {
       return delete definitions[name];
     };
@@ -260,10 +272,8 @@
     getDefinition = function(nameOrWin) {
       var def, name;
       if (typeof nameOrWin === 'string') {
-        console.log("A " + nameOrWin + " (" + definitions[nameOrWin] + ") (" + definitions['work'] + ") " + (Object.keys(definitions)));
         return definitions[nameOrWin];
       } else if (nameOrWin.id != null) {
-        console.log("B " + nameOrWin.id);
         for (name in definitions) {
           if (!hasProp.call(definitions, name)) continue;
           def = definitions[name];
@@ -274,11 +284,11 @@
       }
     };
 
-    TabShepherd.prototype.storeDefinitions = function() {
-      return storeDefinitions();
+    TabShepherd.prototype.storeDefinitions = function(cb) {
+      return storeDefinitions(cb);
     };
 
-    storeDefinitions = function() {
+    storeDefinitions = function(cb) {
       return tabs.query({
         index: 0
       }, function(tabz) {
@@ -297,7 +307,10 @@
           windowDefs: definitions
         }, function() {
           if (runtime.lastError) {
-            return alert(runtime.lastError);
+            alert(runtime.lastError);
+          }
+          if (cb != null) {
+            return cb();
           }
         });
       });
@@ -334,11 +347,19 @@
       if (name === currName) {
         return;
       }
-      if ((currName != null) && (definitions[currName] != null)) {
-        if (currName !== name) {
-          definitions[name] = definitions[currName];
-          delete definitions[currName];
+      if (currName != null) {
+        if (definitions[currName] != null) {
+          if (currName !== name) {
+            definitions[name] = definitions[currName];
+            delete definitions[currName];
+          }
+        } else {
+          definitions[name] = {
+            id: win.id
+          };
         }
+      } else if (definitions[name] != null) {
+        definitions[name].id = win.id;
       } else {
         definitions[name] = {
           id: win.id
@@ -508,6 +529,25 @@
           return cb(grouped);
         };
       })(this));
+    };
+
+    TabShepherd.prototype.withInactiveDefinitions = function(cb) {
+      return withInactiveDefinitions(cb);
+    };
+
+    withInactiveDefinitions = function(cb) {
+      return withEachDefinition({
+        where: function(def, win) {
+          return win == null;
+        },
+        run: function(def) {
+          return def.name;
+        },
+        reduce: function(names) {
+          return names;
+        },
+        then: cb
+      });
     };
 
     matchesAny = function(tab, patterns) {
@@ -719,7 +759,9 @@
           }
           setName(win, name);
         }
-        return callback(win);
+        if (callback != null) {
+          return callback(win);
+        }
       });
     };
 
@@ -1210,45 +1252,52 @@
         }
       },
       go: {
-        desc: 'Perform either "find", "extract" or "open", depending on the arguments and number of matches',
+        desc: 'Perform either "find", "open" or "new", depending on the arguments and number of matches',
         type: 'Changing focus',
         examples: {
-          'ts go document': 'If there is one tab matching /document/, behave as "ts find document", else behave as "ts extract document".',
-          'ts go "work"': 'If there is a window named "work", behave as "ts open work", otherwise behave as "ts new work".'
+          'ts go work': 'If there is a window called "work", focus it; else if there is one tab matching /work/, focus it (behave as "ts find work"); else create window "work" with pattern \'work\' and move applicable tabs there (behave as "ts extract work").',
+          'ts go "work"': 'If there is a window named "work", focus it (behave as "ts open work"), otherwise create it (behave as "ts new work".)',
+          'ts go /work/': 'Focus the first tab matching /work/.'
         },
-        help: function(pattern, name) {
-          var win;
-          if (name == null) {
-            name = pattern;
-          }
-          if (/^"/.test(pattern)) {
-            win = pattern.replace(/"/g, '');
-            if (getDefinition(win) == null) {
-              return this.finish("Press enter to create a new window named %w", win);
+        help: function(name) {
+          if (/^"/.test(name)) {
+            name = name.replace(/"/g, '');
+            if (getDefinition(winName) == null) {
+              return this.finish("Press enter to create a new window named %w.", name);
             } else {
-              return this.finish("Press enter to focus window %w.", win);
+              return this.finish("Press enter to focus window %w.", name);
             }
           } else {
-            return withTabsMatching(pattern, (function(_this) {
-              return function(matchingTabsIds) {
-                if (matchingTabsIds.length === 1) {
-                  return _this.finish("Press enter to focus the single tab matching %p.", pattern);
-                } else if (matchingTabsIds.length > 1) {
-                  return _this.finish("Press enter to extract the %s tabs matching %p into a new window named %w.", matchingTabsIds.length, pattern, name);
-                } else {
-                  return _this.finish("No tabs found matching %p.", pattern);
-                }
-              };
-            })(this));
+            if (getDefinition(name) != null) {
+              return withWindow(name, (function(_this) {
+                return function(win) {
+                  if (win != null) {
+                    return _this.finish("Press enter to focus window %w.", name);
+                  } else {
+                    return _this.finish("Press enter to create a window for existing definition %w.", name);
+                  }
+                };
+              })(this));
+            } else {
+              return withTabsMatching(name, (function(_this) {
+                return function(matchingTabsIds) {
+                  if (matchingTabsIds.length === 1) {
+                    return _this.finish("Press enter to focus the single tab matching %p.", name);
+                  } else if (matchingTabsIds.length > 1) {
+                    return _this.finish("Press enter to extract the %s tabs matching %p into a new window named %w.", matchingTabsIds.length, name, name);
+                  } else {
+                    return _this.finish("No tabs found matching %p.", name);
+                  }
+                };
+              })(this));
+            }
           }
         },
-        run: function(pattern, name) {
+        run: function(name) {
           var winName;
-          if (name == null) {
-            name = pattern;
-          }
-          if (/^"/.test(pattern)) {
-            winName = pattern.replace(/"/g, '');
+          if (/^"/.test(name)) {
+            winName = name.replace(/"/g, '');
+            console.log("Winname: " + winName);
             if (getDefinition(winName) == null) {
               return withNewWindow(winName, (function(_this) {
                 return function() {
@@ -1259,7 +1308,7 @@
               return withWindow(winName, (function(_this) {
                 return function(win) {
                   if (win == null) {
-                    _this.finish("Window not found: %w.", name);
+                    return _this.finish("Window not found: %w.", winName);
                   }
                   focus(win);
                   return _this.finish();
@@ -1267,38 +1316,54 @@
               })(this));
             }
           } else {
-            return withTabsMatching(pattern, (function(_this) {
-              return function(matchingTabsIds) {
-                if (matchingTabsIds.length === 1) {
-                  return tabs.get(matchingTabsIds[0], function(tab) {
-                    return windows.update(tab.windowId, {
-                      focused: true
-                    }, function() {
-                      return tabs.update(tab.id, {
-                        active: true
-                      }, function() {});
+            if (getDefinition(name) != null) {
+              return withWindow(name, (function(_this) {
+                return function(win) {
+                  if (win == null) {
+                    return withNewWindow(name, function(newWin) {
+                      assignPattern(newWin, name);
+                      return _this.finish();
                     });
-                  });
-                } else if (matchingTabsIds.length > 1) {
-                  return withNewWindow(name, function(win) {
-                    return tabs.move(matchingTabsIds, {
-                      windowId: win.id,
-                      index: -1
-                    }, (function(_this) {
-                      return function() {
-                        setName(win, name);
-                        assignPattern(win, pattern);
-                        return tabs.remove(win.tabs[win.tabs.length - 1].id, function() {
-                          return _this.finish();
-                        });
-                      };
-                    })(this));
-                  });
-                } else {
-                  return _this.finish("No tabs found matching %p.", pattern);
-                }
-              };
-            })(this));
+                  } else {
+                    focus(win);
+                    return _this.finish();
+                  }
+                };
+              })(this));
+            } else {
+              return withTabsMatching(name, (function(_this) {
+                return function(matchingTabsIds) {
+                  if (matchingTabsIds.length === 1) {
+                    return tabs.get(matchingTabsIds[0], function(tab) {
+                      return windows.update(tab.windowId, {
+                        focused: true
+                      }, function() {
+                        return tabs.update(tab.id, {
+                          active: true
+                        }, function() {});
+                      });
+                    });
+                  } else if (matchingTabsIds.length > 1) {
+                    return withNewWindow(name, function(win) {
+                      return tabs.move(matchingTabsIds, {
+                        windowId: win.id,
+                        index: -1
+                      }, (function(_this) {
+                        return function() {
+                          setName(win, name);
+                          assignPattern(win, name);
+                          return tabs.remove(win.tabs[win.tabs.length - 1].id, function() {
+                            return _this.finish();
+                          });
+                        };
+                      })(this));
+                    });
+                  } else {
+                    return _this.finish("No tabs found matching %p.", name);
+                  }
+                };
+              })(this));
+            }
           }
         }
       },
@@ -1615,40 +1680,43 @@
             return this.finish('Enter a defined window name, or press enter to merge the window with the fewest tabs.');
           }
           return withWindow(name, (function(_this) {
-            return function(win) {
-              if (win == null) {
+            return function(fromWin) {
+              if (fromWin == null) {
                 return _this.finish('No such window %w', name);
               }
               return withTabsMatching((function(tab) {
-                return tab.windowId === win.id;
+                return tab.windowId === fromWin.id;
               }), function(tabz) {
                 var patterns, ref, ref1;
-                patterns = (ref = (ref1 = getDefinition(win)) != null ? ref1.patterns : void 0) != null ? ref : [];
-                return withCurrentWindow(function(currWin) {
-                  return _this.finish('Press enter to move %s and %s from window %w to this window %w.', plur('tab', tabz.length), plur('pattern', patterns.length), name, getName(currWin));
+                patterns = (ref = (ref1 = getDefinition(fromWin)) != null ? ref1.patterns : void 0) != null ? ref : [];
+                return withCurrentWindow(function(toWin) {
+                  return _this.finish('Press enter to move %s and %s from window %w to this window %w.', plur('tab', tabz.length), plur('pattern', patterns.length), name, getName(toWin));
                 });
               });
             };
           })(this));
         },
         run: function(name) {
-          var doIt;
-          doIt = (function(_this) {
-            return function(win) {
-              if (win == null) {
+          var moveTabsToCurrentFrom;
+          moveTabsToCurrentFrom = (function(_this) {
+            return function(fromWin) {
+              if (fromWin == null) {
                 return _this.finish('No such window %w', name);
               }
               return withTabsMatching((function(tab) {
-                return tab.windowId === win.id;
+                return tab.windowId === fromWin.id;
               }), function(tabz) {
                 var def;
-                def = getDefinition(win);
+                def = getDefinition(fromWin);
                 if (def == null) {
                   return _this.finish("Window %w has no definition!");
                 }
                 return withCurrentWindow(function(currWin) {
                   var currDef, j, len, p, ref, ref1;
                   currDef = getDefinition(currWin);
+                  if (currDef == null) {
+                    return _this.finish("Current window has no definition to merge into!");
+                  }
                   if (currDef.patterns == null) {
                     currDef.patterns = [];
                   }
@@ -1681,7 +1749,7 @@
                 }
                 if (smallest != null) {
                   return withWindow(smallest.name, function(win) {
-                    return doIt(win);
+                    return moveTabsToCurrentFrom(win);
                   });
                 }
               };
@@ -1689,7 +1757,103 @@
           } else {
             return withWindow(name, (function(_this) {
               return function(win) {
-                return doIt(win);
+                return moveTabsToCurrentFrom(win);
+              };
+            })(this));
+          }
+        }
+      },
+      join: {
+        desc: 'Merge all tabs and patterns from this window into another window.',
+        type: 'Moving tabs',
+        examples: {
+          'ts join restaurants': "Move all the tabs and patterns from the current window into window 'restaurants' into and remove this window's definition."
+        },
+        help: function(name) {
+          if (name == null) {
+            return this.finish('Enter a defined window name, or press enter to join the window with the fewest tabs.');
+          }
+          return withCurrentWindow((function(_this) {
+            return function(fromWin) {
+              if (fromWin == null) {
+                return _this.finish('No such window %w', name);
+              }
+              return withTabsMatching((function(tab) {
+                return tab.windowId === fromWin.id;
+              }), function(tabz) {
+                var patterns, ref, ref1;
+                patterns = (ref = (ref1 = getDefinition(fromWin)) != null ? ref1.patterns : void 0) != null ? ref : [];
+                return withWindow(name, function(toWin) {
+                  if (toWin != null) {
+                    return _this.finish('Press enter to move %s and %s from this window %w to window %w.', plur('tab', tabz.length), plur('pattern', patterns.length), getName(fromWin), getName(toWin));
+                  } else {
+                    return _this.finish("Enter a defined window name to move this window's tabs there.");
+                  }
+                });
+              });
+            };
+          })(this));
+        },
+        run: function(name) {
+          var moveTabsFromCurrentTo;
+          moveTabsFromCurrentTo = (function(_this) {
+            return function(toWin) {
+              if (toWin == null) {
+                return _this.finish('No such window %w', name);
+              }
+              return withCurrentWindow(function(currWin) {
+                return withTabsMatching((function(tab) {
+                  return tab.windowId === currWin.id;
+                }), function(tabz) {
+                  var currDef, j, len, p, ref, ref1, toDef;
+                  currDef = getDefinition(currWin);
+                  toDef = getDefinition(toWin);
+                  if (toDef == null) {
+                    return _this.finish("Window %w has no definition!");
+                  }
+                  if (toDef.patterns == null) {
+                    toDef.patterns = [];
+                  }
+                  ref1 = (ref = currDef != null ? currDef.patterns : void 0) != null ? ref : [];
+                  for (j = 0, len = ref1.length; j < len; j++) {
+                    p = ref1[j];
+                    toDef.patterns.push(p);
+                  }
+                  return tabs.move(tabz, {
+                    windowId: toWin.id,
+                    index: -1
+                  }, function() {
+                    if ((currDef != null ? currDef.name : void 0) != null) {
+                      return delete definitions[currDef.name];
+                    }
+                  });
+                });
+              });
+            };
+          })(this);
+          if (name == null) {
+            return countWindowsAndTabs((function(_this) {
+              return function(info) {
+                var inf, k, smallest;
+                smallest = null;
+                for (k in info) {
+                  if (!hasProp.call(info, k)) continue;
+                  inf = info[k];
+                  if (inf.tabs < smallest.tabs) {
+                    smallest = inf;
+                  }
+                }
+                if (smallest != null) {
+                  return withWindow(smallest.name, function(win) {
+                    return moveTabsFromCurrentTo(win);
+                  });
+                }
+              };
+            })(this));
+          } else {
+            return withWindow(name, (function(_this) {
+              return function(win) {
+                return moveTabsFromCurrentTo(win);
               };
             })(this));
           }

@@ -20,7 +20,10 @@
         }
         return ts.countWindowsAndTabs(function(info) {
           $scope.winInfo = info;
-          return $scope.$digest();
+          return ts.withInactiveDefinitions(function(defs) {
+            $scope.inactiveDefs = defs;
+            return $scope.$digest();
+          });
         });
       });
     };
@@ -45,6 +48,14 @@
         $scope.currentWindow = win;
         return ts.focus(win);
       });
+    };
+    $scope.activateDef = function(name) {
+      console.log('Activate ' + name);
+      return ts.activateDefinition(name);
+    };
+    $scope.removeDef = function(name) {
+      console.log('Remove ' + name);
+      return ts.deleteDefinition(name);
     };
     return $scope.init();
   });

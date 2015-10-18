@@ -11,6 +11,14 @@
         .current {
             font-weight: bold;
         }
+        .heading {
+            margin-top: 10px;
+            font-size: 1.1em;
+        }
+        a {
+            cursor: pointer;
+            text-decoration: underline;
+        }
     </style>
 
     <!--
@@ -26,11 +34,16 @@
     <div id="tsTitle">TabShepherd</div>
     <div id="status" ng-controller="PopupController">
         <div class="heading" id="definition">
-            This window is named: <input type="text" id="name" style="width:100px" ng-model="name"/>
+            This window
+        </div>
+        <div class="heading" id="definition">
+            Name: <input type="text" id="name" style="width:100px" ng-model="name"/>
             <input type="button" id="setName" value="Set" ng-click="setName()" ng-disabled="def.name == name"/>
         </div>
+        <div class="heading">
+            Patterns assigned:
+        </div>
         <div id="patternOuter">
-            Patterns assigned to this window: <br/>
             <div id="patterns" ng-model="patterns">
                 <ul>
                     <li ng-repeat="pattern in def.patterns">{{pattern}}</li>
@@ -43,7 +56,13 @@
             Windows:
         </div>
         <div ng-repeat="(id, win) in winInfo">
-            {{id}} <a ng-class="{current: currentWindow.id == id}" ng-click="goToWindow(id)" style="cursor:pointer">{{win.name}}</a>: {{win.tabs}} tabs
+            <a ng-class="{current: currentWindow.id == id}" ng-click="goToWindow(id)" style="cursor:pointer">{{win.name}}</a>: {{win.tabs}} tabs
+        </div>
+        <div class="heading">
+            Inactive definitions:
+        </div>
+        <div ng-repeat="def in inactiveDefs">
+            {{def}} [<a ng-click="activateDef(def)">open</a>] [<a ng-click="removeDef(def)">delete</a>]
         </div>
         <!--<div>-->
             <!--<input type="button" id="reset" value="Reset" ng-click="init()" />-->

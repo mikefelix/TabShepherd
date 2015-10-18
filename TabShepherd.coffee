@@ -126,6 +126,11 @@ class TabShepherd
   focus: (win) -> focus win
   focus = (win) -> windows.update win.id, focused: true, ->
 
+  activateDefinition: (name) -> activateDefinition name
+  activateDefinition = (name) ->
+    withNewWindow name
+
+  deleteDefinition: (name) -> deleteDefinition name
   deleteDefinition = (name) -> delete definitions[name]
 
   getDefinition: (name) -> getDefinition name
@@ -136,8 +141,8 @@ class TabShepherd
       for own name, def of definitions
         return def if def.id == nameOrWin.id
 
-  storeDefinitions: -> storeDefinitions()
-  storeDefinitions = ->
+  storeDefinitions: (cb) -> storeDefinitions(cb)
+  storeDefinitions = (cb) ->
     tabs.query index: 0, (tabz) ->
       for own name, def of definitions
         for tab in tabz when tab.windowId == def.id
@@ -145,6 +150,7 @@ class TabShepherd
       storage.set windowDefs: definitions, ->
 #        console.dir definitions
         alert runtime.lastError if runtime.lastError
+        cb() if cb?
 
   loadDefinitions = (callback) ->
     storage.get 'windowDefs', (data) ->
@@ -160,10 +166,16 @@ class TabShepherd
   setName = (win, name) ->
     currName = getName(win)
     return if name == currName
-    if currName? and definitions[currName]?
-      if currName != name
-        definitions[name] = definitions[currName]
-        delete definitions[currName]
+    if currName?
+      if definitions[currName]?
+        if currName != name
+          # This window already has a definition so move it
+          definitions[name] = definitions[currName]
+          delete definitions[currName]
+      else
+        definitions[name] = id: win.id
+    else if definitions[name]?
+      definitions[name].id = win.id
     else
       definitions[name] = id: win.id
 
@@ -247,6 +259,14 @@ class TabShepherd
         grouped[id].name = getName(id) ? "(unnamed)"
         grouped[id].id = id
       cb grouped
+
+  withInactiveDefinitions: (cb) -> withInactiveDefinitions cb
+  withInactiveDefinitions = (cb) ->
+    withEachDefinition
+      where: (def, win) -> not win?
+      run: (def) -> def.name
+      reduce: (names) -> names
+      then: cb
 
   matchesAny = (tab, patterns) =>
     for p in patterns
@@ -338,7 +358,7 @@ class TabShepherd
       if name?
         definitions[name] = id: win.id, name: name if !getDefinition(name)?
         setName win, name
-      callback win
+      callback win if callback?
 
   withCurrentWindow: (callback) -> withCurrentWindow callback
   withCurrentWindow = (callback) ->
@@ -620,54 +640,71 @@ class TabShepherd
 #        else
 #          getCommand('find').run.apply @, @args
     go:
-      desc: 'Perform either "find", "extract" or "open", depending on the arguments and number of matches'
+      desc: 'Perform either "find", "open" or "new", depending on the arguments and number of matches'
       type: 'Changing focus'
       examples:
-        'ts go document': 'If there is one tab matching /document/, behave as "ts find document", else behave as "ts extract document".',
-        'ts go "work"' : 'If there is a window named "work", behave as "ts open work", otherwise behave as "ts new work".'
-      help: (pattern, name) ->
-        name = pattern if !name?
-        if /^"/.test pattern
-          win = pattern.replace /"/g, ''
-          if !getDefinition(win)?
-            @finish "Press enter to create a new window named %w", win
+        'ts go work': 'If there is a window called "work", focus it; else if there is one tab matching /work/, focus it (behave as "ts find work"); else create window "work" with pattern \'work\' and move applicable tabs there (behave as "ts extract work").',
+        'ts go "work"' : 'If there is a window named "work", focus it (behave as "ts open work"), otherwise create it (behave as "ts new work".)'
+        'ts go /work/' : 'Focus the first tab matching /work/.'
+      help: (name) ->
+        if /^"/.test name
+          name = name.replace /"/g, ''
+          if !getDefinition(winName)?
+            @finish "Press enter to create a new window named %w.", name
           else
-            @finish "Press enter to focus window %w.", win
+            @finish "Press enter to focus window %w.", name
         else
-          withTabsMatching pattern, (matchingTabsIds) =>
-            if matchingTabsIds.length == 1
-              @finish "Press enter to focus the single tab matching %p.", pattern
-            else if matchingTabsIds.length > 1
-              @finish "Press enter to extract the %s tabs matching %p into a new window named %w.", matchingTabsIds.length, pattern, name
-            else
-              @finish "No tabs found matching %p.", pattern
-      run: (pattern, name) ->
-        name = pattern if !name?
-        if /^"/.test pattern
-          winName = pattern.replace /"/g, ''
+          if getDefinition(name)?
+            withWindow name, (win) =>
+              if win?
+                @finish "Press enter to focus window %w.", name
+              else
+                @finish "Press enter to create a window for existing definition %w.", name
+          else
+            withTabsMatching name, (matchingTabsIds) =>
+              if matchingTabsIds.length == 1
+                @finish "Press enter to focus the single tab matching %p.", name
+              else if matchingTabsIds.length > 1
+                @finish "Press enter to extract the %s tabs matching %p into a new window named %w.", matchingTabsIds.length, name, name
+              else
+                @finish "No tabs found matching %p.", name
+      run: (name) ->
+        if /^"/.test name
+          winName = name.replace /"/g, ''
+          console.log "Winname: #{winName}"
           if !getDefinition(winName)?
             withNewWindow winName, =>
               @finish()
           else
             withWindow winName, (win) =>
-              @finish "Window not found: %w.", name if !win?
+              return @finish "Window not found: %w.", winName if !win?
               focus win
               @finish()
         else
-          withTabsMatching pattern, (matchingTabsIds) =>
-            if matchingTabsIds.length == 1
-              tabs.get matchingTabsIds[0], (tab) =>
-                windows.update tab.windowId, focused: true, =>
-                  tabs.update tab.id, active: true, =>
-            else if matchingTabsIds.length > 1
-              withNewWindow name, (win) ->
-                tabs.move matchingTabsIds, windowId: win.id, index: -1, =>
-                  setName win, name
-                  assignPattern win, pattern
-                  tabs.remove win.tabs[win.tabs.length - 1].id, =>
-                    @finish()
-            else
-              @finish "No tabs found matching %p.", pattern
+          if getDefinition(name)?
+            withWindow name, (win) =>
+              if not win?
+                withNewWindow name, (newWin) =>
+                  assignPattern newWin, name
+                  @finish()
+              else
+                focus win
+                @finish()
+          else
+            withTabsMatching name, (matchingTabsIds) =>
+              if matchingTabsIds.length == 1
+                tabs.get matchingTabsIds[0], (tab) =>
+                  windows.update tab.windowId, focused: true, =>
+                    tabs.update tab.id, active: true, =>
+              else if matchingTabsIds.length > 1
+                withNewWindow name, (win) ->
+                  tabs.move matchingTabsIds, windowId: win.id, index: -1, =>
+                    setName win, name
+                    assignPattern win, name
+                    tabs.remove win.tabs[win.tabs.length - 1].id, =>
+                      @finish()
+              else
+                @finish "No tabs found matching %p.", name
     find:
       desc: 'Go to the first tab found matching a pattern, never moving tabs'
       type: 'Changing focus'
@@ -844,20 +881,21 @@ class TabShepherd
       examples: 'ts merge restaurants': "Move all the tabs and patterns from window 'restaurants' into the current window and remove the 'restaurants' definition."
       help: (name) ->
         return @finish 'Enter a defined window name, or press enter to merge the window with the fewest tabs.' if !name?
-        withWindow name, (win) =>
-          return @finish 'No such window %w', name if !win?
-          withTabsMatching ((tab) -> tab.windowId == win.id), (tabz) =>
-            patterns = getDefinition(win)?.patterns ? []
-            withCurrentWindow (currWin) =>
-              @finish 'Press enter to move %s and %s from window %w to this window %w.', plur('tab', tabz.length), plur('pattern', patterns.length), name, getName(currWin)
+        withWindow name, (fromWin) =>
+          return @finish 'No such window %w', name if !fromWin?
+          withTabsMatching ((tab) -> tab.windowId == fromWin.id), (tabz) =>
+            patterns = getDefinition(fromWin)?.patterns ? []
+            withCurrentWindow (toWin) =>
+              @finish 'Press enter to move %s and %s from window %w to this window %w.', plur('tab', tabz.length), plur('pattern', patterns.length), name, getName(toWin)
       run: (name) ->
-        doIt = (win) =>
-          return @finish 'No such window %w', name if !win?
-          withTabsMatching ((tab) -> tab.windowId == win.id), (tabz) =>
-            def = getDefinition win
+        moveTabsToCurrentFrom = (fromWin) =>
+          return @finish 'No such window %w', name if !fromWin?
+          withTabsMatching ((tab) -> tab.windowId == fromWin.id), (tabz) =>
+            def = getDefinition fromWin
             return @finish "Window %w has no definition!" if not def?
             withCurrentWindow (currWin) =>
               currDef = getDefinition currWin
+              return @finish "Current window has no definition to merge into!" if not currDef?
               currDef.patterns = [] if !currDef.patterns?
               for p in def.patterns ? []
                 currDef.patterns.push p
@@ -869,10 +907,46 @@ class TabShepherd
             for own k, inf of info
               smallest = inf if inf.tabs < smallest.tabs
             if smallest?
-              withWindow smallest.name, (win) => doIt win
+              withWindow smallest.name, (win) => moveTabsToCurrentFrom win
         else
-          withWindow name, (win) => doIt win
-
+          withWindow name, (win) => moveTabsToCurrentFrom win
+    join:
+      desc: 'Merge all tabs and patterns from this window into another window.'
+      type: 'Moving tabs'
+      examples: 'ts join restaurants': "Move all the tabs and patterns from the current window into window 'restaurants' into and remove this window's definition."
+      help: (name) ->
+        return @finish 'Enter a defined window name, or press enter to join the window with the fewest tabs.' if !name?
+        withCurrentWindow (fromWin) =>
+          return @finish 'No such window %w', name if !fromWin?
+          withTabsMatching ((tab) -> tab.windowId == fromWin.id), (tabz) =>
+            patterns = getDefinition(fromWin)?.patterns ? []
+            withWindow name, (toWin) =>
+              if toWin?
+                @finish 'Press enter to move %s and %s from this window %w to window %w.', plur('tab', tabz.length), plur('pattern', patterns.length), getName(fromWin), getName(toWin)
+              else
+                @finish "Enter a defined window name to move this window's tabs there."
+      run: (name) ->
+        moveTabsFromCurrentTo = (toWin) =>
+          return @finish 'No such window %w', name if !toWin?
+          withCurrentWindow (currWin) =>
+            withTabsMatching ((tab) -> tab.windowId == currWin.id), (tabz) =>
+              currDef = getDefinition currWin
+              toDef = getDefinition toWin
+              return @finish "Window %w has no definition!" if not toDef?
+              toDef.patterns = [] if not toDef.patterns?
+              for p in currDef?.patterns ? []
+                toDef.patterns.push p
+              tabs.move tabz, windowId: toWin.id, index: -1, =>
+                delete definitions[currDef.name] if currDef?.name?
+        if !name?
+          countWindowsAndTabs (info) =>
+            smallest = null
+            for own k, inf of info
+              smallest = inf if inf.tabs < smallest.tabs
+            if smallest?
+              withWindow smallest.name, (win) => moveTabsFromCurrentTo win
+        else
+          withWindow name, (win) => moveTabsFromCurrentTo win
     split:
       desc: 'Split a window in two, moving half of the tabs to a new window.'
       type: 'Moving tabs'
