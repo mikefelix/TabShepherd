@@ -128,7 +128,12 @@ class TabShepherd
 
   activateDefinition: (name) -> activateDefinition name
   activateDefinition = (name) ->
-    withNewWindow name
+    withNewWindow name, (win) ->
+      def = getDefinition(name)
+      if not def?
+        def = definitions[name] = name: name
+      def.id = win.id
+      storeDefinitions()
 
   deleteDefinition: (name) -> deleteDefinition name
   deleteDefinition = (name) -> delete definitions[name]

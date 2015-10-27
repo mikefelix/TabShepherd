@@ -254,7 +254,17 @@
     };
 
     activateDefinition = function(name) {
-      return withNewWindow(name);
+      return withNewWindow(name, function(win) {
+        var def;
+        def = getDefinition(name);
+        if (def == null) {
+          def = definitions[name] = {
+            name: name
+          };
+        }
+        def.id = win.id;
+        return storeDefinitions();
+      });
     };
 
     TabShepherd.prototype.deleteDefinition = function(name) {
