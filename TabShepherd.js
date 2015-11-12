@@ -467,17 +467,18 @@
       return false;
     };
 
-    containsPattern = function(pattern) {
-      var j, len, p, patt;
-      if (getDefinition(window) == null) {
-        alert('Unknown window ' + window.name);
+    containsPattern = function(pattern, win) {
+      var def, j, len, p, patterns;
+      def = getDefinition(win);
+      if (def == null) {
+        alert('Unknown window definition' + win.name);
       }
-      patt = getDefinitions(window).patterns;
-      if (patt == null) {
+      patterns = def.patterns;
+      if (patterns == null) {
         return false;
       }
-      for (j = 0, len = patt.length; j < len; j++) {
-        p = patt[j];
+      for (j = 0, len = patterns.length; j < len; j++) {
+        p = patterns[j];
         if (p === pattern) {
           return true;
         }
@@ -1013,6 +1014,7 @@
           'ts defs': 'List all the window definitions that exist.'
         },
         help: function() {
+          console.dir(definitions);
           return this.finish('Press enter to list the window definitions.');
         },
         run: function() {
@@ -1270,7 +1272,9 @@
           'ts go /work/': 'Focus the first tab matching /work/.'
         },
         help: function(name) {
-          if (/^"/.test(name)) {
+          if (name == null) {
+            return this.finish("Enter a window name or URL pattern.");
+          } else if (/^"/.test(name)) {
             name = name.replace(/"/g, '');
             if (getDefinition(winName) == null) {
               return this.finish("Press enter to create a new window named %w.", name);
@@ -1305,9 +1309,9 @@
         },
         run: function(name) {
           var winName;
+          console.log("Run with name " + name);
           if (/^"/.test(name)) {
             winName = name.replace(/"/g, '');
-            console.log("Winname: " + winName);
             if (getDefinition(winName) == null) {
               return withNewWindow(winName, (function(_this) {
                 return function() {

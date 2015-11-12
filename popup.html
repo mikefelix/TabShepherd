@@ -63,6 +63,9 @@
         </div>
         <div ng-repeat="def in inactiveDefs">
             {{def}} [<a ng-click="activateDef(def)">open</a>] [<a ng-click="removeDef(def)">delete</a>]
+            <ul ng-show="def.patterns && def.patterns.length > 0">
+                <li ng-repeat="pat in def.patterns">{{pat}}</li>
+            </ul>
         </div>
         <!--<div>-->
             <!--<input type="button" id="reset" value="Reset" ng-click="init()" />-->

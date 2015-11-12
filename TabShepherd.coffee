@@ -233,17 +233,18 @@ class TabShepherd
     alert "Could not delete pattern #{pattern} from window '#{window.name}'."
     false
 
-  containsPattern = (pattern) ->
-    alert 'Unknown window ' + window.name if !getDefinition(window)?
-    patt = getDefinitions(window).patterns
-    return false if !patt?
-    for p in patt
+  containsPattern = (pattern, win) ->
+    def = getDefinition(win)
+    alert 'Unknown window definition' + win.name if not def?
+    patterns = def.patterns
+    return false if not patterns?
+    for p in patterns
       return true if p == pattern
     false
 
   listPatterns = (window) ->
     def = getDefinition window
-    return '' if !def?
+    return '' if not def?
     patterns = def.patterns ? []
     (makeText("%p\n", patt) for patt in patterns).join('')
 
@@ -380,6 +381,27 @@ class TabShepherd
     tabs.query active: true, windowId: win.id, (tabs) ->
       callback tabs[0] if tabs.length > 0
 
+  whenDefinition = (name, cases) ->
+    withEachDefinition
+      where: (def) -> def.name == name
+      run: (def, win) ->
+        if not def?
+          if cases.isUndefined?
+            cases.isUndefined()
+          else
+            throw "Definition #{def} is undefined, but isUndefined case not given."
+        else if def? and not win?
+          if cases.isUnused?
+            cases.isUnused(def)
+          else
+            throw "Definition #{def} is defined and unused, but isUnused case is not given."
+        else
+          if cases.isInUse?
+            cases.isInUse(def, win)
+          else
+            throw "Definition #{def} is in use, but isInUse case is not given."
+      otherwise: throw "Unexpected condition."
+
   plur = (word, num) ->
     text = if num == 1
       word
@@ -498,10 +520,11 @@ class TabShepherd
       help: ->
         @finish 'Press enter to list the window definitions.'
       run: ->
+        console.dir(definitions)
         withEachDefinition
           run: (def, win) =>
             winText = if win? then 'window ' + win.id else 'no attached window'
-            "#{def.name} (#{winText})\n#{def.firstUrl}"
+            "#{def.name} (#{winText})\n#{def.firstUrl.substring(0, 21)}"
           reduce: (msgs) =>
             msgs.join("\n")
           then: (text) =>
@@ -652,31 +675,33 @@ class TabShepherd
         'ts go "work"' : 'If there is a window named "work", focus it (behave as "ts open work"), otherwise create it (behave as "ts new work".)'
         'ts go /work/' : 'Focus the first tab matching /work/.'
       help: (name) ->
-        if /^"/.test name
+        if not name?
+          @finish "Enter a window name or URL pattern."
+        else if /^"/.test name
           name = name.replace /"/g, ''
-          if !getDefinition(winName)?
+          if not getDefinition(name)?
             @finish "Press enter to create a new window named %w.", name
           else
             @finish "Press enter to focus window %w.", name
         else
-          if getDefinition(name)?
-            withWindow name, (win) =>
-              if win?
-                @finish "Press enter to focus window %w.", name
-              else
-                @finish "Press enter to create a window for existing definition %w.", name
-          else
-            withTabsMatching name, (matchingTabsIds) =>
-              if matchingTabsIds.length == 1
-                @finish "Press enter to focus the single tab matching %p.", name
-              else if matchingTabsIds.length > 1
-                @finish "Press enter to extract the %s tabs matching %p into a new window named %w.", matchingTabsIds.length, name, name
-              else
-                @finish "No tabs found matching %p.", name
+          whenDefinition name,
+            isUndefined: =>
+              withTabsMatching name, (matchingTabsIds) =>
+                if matchingTabsIds.length == 1
+                  @finish "Press enter to focus the single tab matching %p.", name
+                else if matchingTabsIds.length > 1
+                  @finish "Press enter to extract the %s tabs matching %p into a new window named %w.", matchingTabsIds.length, name, name
+                else
+                  @finish "No tabs found matching %p.", name
+            isUnused: =>
+              @finish "Press enter to create a window for inactive definition %w.", name
+            isInUse: =>
+              @finish "Press enter to focus window %w.", name
       run: (name) ->
-        if /^"/.test name
+        if not name?
+          @finish "Enter a window name or URL pattern."
+        else if /^"/.test name
           winName = name.replace /"/g, ''
-          console.log "Winname: #{winName}"
           if !getDefinition(winName)?
             withNewWindow winName, =>
               @finish()
@@ -686,30 +711,35 @@ class TabShepherd
               focus win
               @finish()
         else
+          whenDefinition name,
+            isUndefined: =>
+              withTabsMatching name, (matchingTabsIds) =>
+                if matchingTabsIds.length == 1
+                  tabs.get matchingTabsIds[0], (tab) =>
+                    windows.update tab.windowId, focused: true, =>
+                      tabs.update tab.id, active: true, =>
+                else if matchingTabsIds.length > 1
+                  withNewWindow name, (win) =>
+                    tabs.move matchingTabsIds, windowId: win.id, index: -1, =>
+                      setName win, name
+                      assignPattern win, name
+                      tabs.remove win.tabs[win.tabs.length - 1].id, =>
+                        @finish()
+                else
+                  @finish "No tabs found matching %p.", name
+            isUnused: =>
+              withNewWindow name, (newWin) =>
+                assignPattern newWin, name
+                @finish()
+            isInUse: =>
+              focus win
+              @finish()
           if getDefinition(name)?
             withWindow name, (win) =>
               if not win?
-                withNewWindow name, (newWin) =>
-                  assignPattern newWin, name
-                  @finish()
               else
-                focus win
-                @finish()
           else
-            withTabsMatching name, (matchingTabsIds) =>
-              if matchingTabsIds.length == 1
-                tabs.get matchingTabsIds[0], (tab) =>
-                  windows.update tab.windowId, focused: true, =>
-                    tabs.update tab.id, active: true, =>
-              else if matchingTabsIds.length > 1
-                withNewWindow name, (win) ->
-                  tabs.move matchingTabsIds, windowId: win.id, index: -1, =>
-                    setName win, name
-                    assignPattern win, name
-                    tabs.remove win.tabs[win.tabs.length - 1].id, =>
-                      @finish()
-              else
-                @finish "No tabs found matching %p.", name
+
     find:
       desc: 'Go to the first tab found matching a pattern, never moving tabs'
       type: 'Changing focus'
