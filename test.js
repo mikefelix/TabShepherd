@@ -550,7 +550,7 @@
     expectSuggestionFor('find things', "Press enter to focus the first of 3 tabs matching 'things'.");
     expectNoResponseFor('find things');
     assertFocus(1, 3);
-    expectSuggestionFor('find really', "Press enter to focus the tab matching 'really'.");
+    expectSuggestionFor('find really', "Press enter to focus the tab matching 'really' in window \"hello\".");
     expectNoResponseFor('find really');
     assertFocus(1, 4);
     expectSuggestionFor('find sweet|bitter', "Press enter to focus the first of 2 tabs matching /sweet|bitter/.");

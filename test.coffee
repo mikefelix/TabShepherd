@@ -350,7 +350,7 @@ context "find",
     expectNoResponseFor 'find things'
     assertFocus 1, 3
 
-    expectSuggestionFor 'find really', "Press enter to focus the tab matching 'really'."
+    expectSuggestionFor 'find really', "Press enter to focus the tab matching 'really' in window \"hello\"."
     expectNoResponseFor 'find really'
     assertFocus 1, 4
 

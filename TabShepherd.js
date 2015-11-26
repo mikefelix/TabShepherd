@@ -5,7 +5,7 @@
     slice = [].slice;
 
   TabShepherd = (function() {
-    var Command, activateDefinition, alert, assignPattern, commands, containsPattern, countWindowsAndTabs, definitions, deleteDefinition, focus, getArgs, getCommand, getCommandName, getDefForPattern, getDefinition, getId, getName, getPossibleCommands, inputChanged, inputEntered, isRegex, lastCommand, listPatterns, loadDefinitions, makeText, matchesAny, omnibox, plur, runtime, setName, showExamples, storage, storeDefinitions, summarizeCommands, tabs, unassignPattern, windowMatching, windows, withActiveTab, withCurrentWindow, withEachDefinition, withEachWindow, withExistingWindow, withHighlightedTab, withInactiveDefinitions, withNewWindow, withTabsMatching, withWindow, withWindowForPattern, withWindowNamed;
+    var Command, activateDefinition, alert, assignPattern, commands, containsPattern, countWindowsAndTabs, definitions, deleteDefinition, focus, getArgs, getCommand, getCommandName, getDefForPattern, getDefinition, getId, getName, getPossibleCommands, inputChanged, inputEntered, isRegex, lastCommand, listPatterns, loadDefinitions, makeText, matchesAny, omnibox, plur, runtime, setName, showExamples, storage, storeDefinitions, summarizeCommands, tabs, unassignPattern, whenDefinition, windowMatching, windows, withActiveTab, withCurrentWindow, withEachDefinition, withEachWindow, withExistingWindow, withHighlightedTab, withInactiveDefinitions, withNewWindow, withTabsMatching, withWindow, withWindowForPattern, withWindowNamed;
 
     storage = null;
 
@@ -244,9 +244,15 @@
     };
 
     focus = function(win) {
-      return windows.update(win.id, {
-        focused: true
-      }, function() {});
+      if (typeof win === 'object') {
+        return windows.update(win.id, {
+          focused: true
+        }, function() {});
+      } else {
+        return windows.update(win, {
+          focused: true
+        }, function() {});
+      }
     };
 
     TabShepherd.prototype.activateDefinition = function(name) {
@@ -752,8 +758,8 @@
       return tabs.query({
         active: true,
         currentWindow: true
-      }, function(tabs) {
-        return callback(tabs[0]);
+      }, function(tabz) {
+        return callback(tabz[0]);
       });
     };
 
@@ -764,10 +770,10 @@
         if (name != null) {
           if (getDefinition(name) == null) {
             definitions[name] = {
-              id: win.id,
               name: name
             };
           }
+          definitions[name].id = win.id;
           setName(win, name);
         }
         if (callback != null) {
@@ -806,6 +812,35 @@
       }, function(tabs) {
         if (tabs.length > 0) {
           return callback(tabs[0]);
+        }
+      });
+    };
+
+    whenDefinition = function(name, cases) {
+      return withEachDefinition({
+        where: function(def) {
+          return def.name === name;
+        },
+        run: function(def, win) {
+          if (def == null) {
+            if (cases.isUndefined != null) {
+              return cases.isUndefined();
+            } else {
+              throw "Definition " + def + " is undefined, but isUndefined case not given.";
+            }
+          } else if ((def != null) && (win == null)) {
+            if (cases.isUnused != null) {
+              return cases.isUnused(def);
+            } else {
+              throw "Definition " + def + " is defined and unused, but isUnused case is not given.";
+            }
+          } else {
+            if (cases.isInUse != null) {
+              return cases.isInUse(def, win);
+            } else {
+              throw "Definition " + def + " is in use, but isInUse case is not given.";
+            }
+          }
         }
       });
     };
@@ -1014,16 +1049,16 @@
           'ts defs': 'List all the window definitions that exist.'
         },
         help: function() {
-          console.dir(definitions);
           return this.finish('Press enter to list the window definitions.');
         },
         run: function() {
+          console.dir(definitions);
           return withEachDefinition({
             run: (function(_this) {
               return function(def, win) {
                 var winText;
                 winText = win != null ? 'window ' + win.id : 'no attached window';
-                return def.name + " (" + winText + ")\n" + def.firstUrl;
+                return def.name + " (" + winText + ")\n" + (def.firstUrl.substring(0, 21));
               };
             })(this),
             reduce: (function(_this) {
@@ -1276,41 +1311,44 @@
             return this.finish("Enter a window name or URL pattern.");
           } else if (/^"/.test(name)) {
             name = name.replace(/"/g, '');
-            if (getDefinition(winName) == null) {
+            if (getDefinition(name) == null) {
               return this.finish("Press enter to create a new window named %w.", name);
             } else {
               return this.finish("Press enter to focus window %w.", name);
             }
           } else {
-            if (getDefinition(name) != null) {
-              return withWindow(name, (function(_this) {
-                return function(win) {
-                  if (win != null) {
-                    return _this.finish("Press enter to focus window %w.", name);
-                  } else {
-                    return _this.finish("Press enter to create a window for existing definition %w.", name);
-                  }
+            return whenDefinition(name, {
+              isUndefined: (function(_this) {
+                return function() {
+                  return withTabsMatching(name, function(matchingTabsIds) {
+                    if (matchingTabsIds.length === 1) {
+                      return _this.finish("Press enter to focus the single tab matching %p.", name);
+                    } else if (matchingTabsIds.length > 1) {
+                      return _this.finish("Press enter to extract the %s tabs matching %p into a new window named %w.", matchingTabsIds.length, name, name);
+                    } else {
+                      return _this.finish("No tabs found matching %p.", name);
+                    }
+                  });
                 };
-              })(this));
-            } else {
-              return withTabsMatching(name, (function(_this) {
-                return function(matchingTabsIds) {
-                  if (matchingTabsIds.length === 1) {
-                    return _this.finish("Press enter to focus the single tab matching %p.", name);
-                  } else if (matchingTabsIds.length > 1) {
-                    return _this.finish("Press enter to extract the %s tabs matching %p into a new window named %w.", matchingTabsIds.length, name, name);
-                  } else {
-                    return _this.finish("No tabs found matching %p.", name);
-                  }
+              })(this),
+              isUnused: (function(_this) {
+                return function() {
+                  return _this.finish("Press enter to create a window for inactive definition %w.", name);
                 };
-              })(this));
-            }
+              })(this),
+              isInUse: (function(_this) {
+                return function() {
+                  return _this.finish("Press enter to focus window %w.", name);
+                };
+              })(this)
+            });
           }
         },
         run: function(name) {
           var winName;
-          console.log("Run with name " + name);
-          if (/^"/.test(name)) {
+          if (name == null) {
+            return this.finish("Enter a window name or URL pattern.");
+          } else if (/^"/.test(name)) {
             winName = name.replace(/"/g, '');
             if (getDefinition(winName) == null) {
               return withNewWindow(winName, (function(_this) {
@@ -1330,53 +1368,66 @@
               })(this));
             }
           } else {
-            if (getDefinition(name) != null) {
-              return withWindow(name, (function(_this) {
-                return function(win) {
-                  if (win == null) {
-                    return withNewWindow(name, function(newWin) {
-                      assignPattern(newWin, name);
-                      return _this.finish();
-                    });
-                  } else {
-                    focus(win);
-                    return _this.finish();
-                  }
-                };
-              })(this));
-            } else {
-              return withTabsMatching(name, (function(_this) {
-                return function(matchingTabsIds) {
-                  if (matchingTabsIds.length === 1) {
-                    return tabs.get(matchingTabsIds[0], function(tab) {
-                      return windows.update(tab.windowId, {
-                        focused: true
-                      }, function() {
-                        return tabs.update(tab.id, {
-                          active: true
-                        }, function() {});
+            whenDefinition(name, {
+              isUndefined: (function(_this) {
+                return function() {
+                  return withTabsMatching(name, function(matchingTabsIds) {
+                    if (matchingTabsIds.length === 1) {
+                      return tabs.get(matchingTabsIds[0], function(tab) {
+                        return windows.update(tab.windowId, {
+                          focused: true
+                        }, function() {
+                          return tabs.update(tab.id, {
+                            active: true
+                          }, function() {});
+                        });
                       });
-                    });
-                  } else if (matchingTabsIds.length > 1) {
-                    return withNewWindow(name, function(win) {
-                      return tabs.move(matchingTabsIds, {
-                        windowId: win.id,
-                        index: -1
-                      }, (function(_this) {
-                        return function() {
+                    } else if (matchingTabsIds.length > 1) {
+                      return withNewWindow(name, function(win) {
+                        return tabs.move(matchingTabsIds, {
+                          windowId: win.id,
+                          index: -1
+                        }, function() {
                           setName(win, name);
                           assignPattern(win, name);
                           return tabs.remove(win.tabs[win.tabs.length - 1].id, function() {
                             return _this.finish();
                           });
-                        };
-                      })(this));
-                    });
+                        });
+                      });
+                    } else {
+                      return _this.finish("No tabs found matching %p.", name);
+                    }
+                  });
+                };
+              })(this),
+              isUnused: (function(_this) {
+                return function() {
+                  return withNewWindow(name, function(newWin) {
+                    assignPattern(newWin, name);
+                    return _this.finish();
+                  });
+                };
+              })(this),
+              isInUse: (function(_this) {
+                return function(def, win) {
+                  focus(win);
+                  return _this.finish();
+                };
+              })(this)
+            });
+            if (getDefinition(name) != null) {
+              return withWindow(name, (function(_this) {
+                return function(win) {
+                  if (win == null) {
+
                   } else {
-                    return _this.finish("No tabs found matching %p.", name);
+
                   }
                 };
               })(this));
+            } else {
+
             }
           }
         }
@@ -1562,27 +1613,99 @@
         run: function(name) {
           return withActiveTab((function(_this) {
             return function(tab) {
-              var existingWin;
-              existingWin = getDefinition(name);
-              if (existingWin != null) {
-                return tabs.move(tab.id, {
-                  windowId: existingWin.id,
-                  index: -1
-                }, function() {
-                  return _this.finish();
-                });
-              } else {
-                return withNewWindow(name, function(win) {
+              return whenDefinition(name, {
+                isUndefined: function() {
+                  return withNewWindow(name, function(win) {
+                    return tabs.move(tab.id, {
+                      windowId: win.id,
+                      index: -1
+                    }, function() {
+                      return tabs.remove(win.tabs[win.tabs.length - 1].id, function() {
+                        return _this.finish();
+                      });
+                    });
+                  });
+                },
+                isUnused: function() {
+                  return withNewWindow(name, function(win) {
+                    return tabs.move(tab.id, {
+                      windowId: win.id,
+                      index: -1
+                    }, function() {
+                      return tabs.remove(win.tabs[win.tabs.length - 1].id, function() {
+                        return _this.finish();
+                      });
+                    });
+                  });
+                },
+                isInUse: function(def, win) {
                   return tabs.move(tab.id, {
                     windowId: win.id,
                     index: -1
                   }, function() {
-                    return tabs.remove(win.tabs[win.tabs.length - 1].id, function() {
-                      return _this.finish();
+                    return _this.finish();
+                  });
+                }
+              });
+            };
+          })(this));
+        }
+      },
+      move: {
+        desc: 'Move the current tab to the window named in the argument, creating the window if necessary; focus that window.',
+        type: 'Moving tabs',
+        examples: {
+          'ts move research': "Send the current tab to the window named 'research', first creating it if necessary; focus 'research'."
+        },
+        help: function(name) {
+          var def;
+          if (name == null) {
+            return this.finish('Enter a window name to send this tab there.');
+          } else {
+            def = getDefinition(name);
+            return this.finish("Press enter to send this tab to %swindow %w.", (def != null ? '' : 'new '), name);
+          }
+        },
+        run: function(name) {
+          return withActiveTab((function(_this) {
+            return function(tab) {
+              return whenDefinition(name, {
+                isUndefined: function() {
+                  return withNewWindow(name, function(win) {
+                    return tabs.move(tab.id, {
+                      windowId: win.id,
+                      index: -1
+                    }, function() {
+                      return tabs.remove(win.tabs[win.tabs.length - 1].id, function() {
+                        focus(win);
+                        return _this.finish();
+                      });
                     });
                   });
-                });
-              }
+                },
+                isUnused: function() {
+                  return withNewWindow(name, function(win) {
+                    return tabs.move(tab.id, {
+                      windowId: win.id,
+                      index: -1
+                    }, function() {
+                      return tabs.remove(win.tabs[win.tabs.length - 1].id, function() {
+                        focus(win);
+                        return _this.finish();
+                      });
+                    });
+                  });
+                },
+                isInUse: function(def, win) {
+                  return tabs.move(tab.id, {
+                    windowId: win.id,
+                    index: -1
+                  }, function() {
+                    focus(win.id);
+                    return _this.finish();
+                  });
+                }
+              });
             };
           })(this));
         }

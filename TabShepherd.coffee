@@ -124,7 +124,11 @@ class TabShepherd
     msg
 
   focus: (win) -> focus win
-  focus = (win) -> windows.update win.id, focused: true, ->
+  focus = (win) ->
+    if typeof win == 'object'
+      windows.update win.id, focused: true, ->
+    else
+      windows.update win, focused: true, ->
 
   activateDefinition: (name) -> activateDefinition name
   activateDefinition = (name) ->
@@ -356,13 +360,14 @@ class TabShepherd
         otherwise()
 
   withActiveTab = (callback) ->
-    tabs.query active: true, currentWindow: true, (tabs) ->
-      callback tabs[0]
+    tabs.query active: true, currentWindow: true, (tabz) ->
+      callback tabz[0]
 
   withNewWindow = (name, callback) ->
     windows.create type: 'normal', (win) ->
       if name?
-        definitions[name] = id: win.id, name: name if !getDefinition(name)?
+        definitions[name] = name: name if not getDefinition(name)?
+        definitions[name].id = win.id
         setName win, name
       callback win if callback?
 
@@ -400,7 +405,7 @@ class TabShepherd
             cases.isInUse(def, win)
           else
             throw "Definition #{def} is in use, but isInUse case is not given."
-      otherwise: throw "Unexpected condition."
+#      otherwise: -> throw "Unexpected condition."
 
   plur = (word, num) ->
     text = if num == 1
@@ -497,7 +502,10 @@ class TabShepherd
         withCurrentWindow (win) =>
           if getName(win)?
             if newName?
-              @finish "Press enter to change window name from %w to %w.", getName(win), newName
+              if newName == getName(win)
+                @finish "This window is already called %w.", newName
+              else
+                @finish "Press enter to change window name from %w to %w.", getName(win), newName
             else
               @finish "Enter a new name for this window (currently named %w).", getName(win)
           else
@@ -667,6 +675,22 @@ class TabShepherd
 #          getCommand('focus').run.apply @, @args
 #        else
 #          getCommand('find').run.apply @, @args
+    last:
+      desc: 'Focus the previously-focused window'
+      type: 'Changing focus'
+      examples:
+        'ts last': 'Focus the previously-focused window.',
+      help: () ->
+        tabs.query active: true, lastFocusedWindow: true, (tabz) =>
+          if tabz?.length
+            tab = tabz[0]
+            withEachDefinition
+              where: (def, win) => win.id == tab.windowId
+              run: (def) => @finish "Press enter to focus the previously focused window %w.", def.name
+              otherwise: => @finish "Press enter to focus the previously focused unnamed window."
+          else
+            @finish "Press enter to focus the previously focused window."
+      run: () ->
     go:
       desc: 'Perform either "find", "open" or "new", depending on the arguments and number of matches'
       type: 'Changing focus'
@@ -731,7 +755,7 @@ class TabShepherd
               withNewWindow name, (newWin) =>
                 assignPattern newWin, name
                 @finish()
-            isInUse: =>
+            isInUse: (def, win) =>
               focus win
               @finish()
           if getDefinition(name)?
@@ -828,39 +852,49 @@ class TabShepherd
           @finish "Press enter to send this tab to %swindow %w.", (if win? then '' else 'new '), name
       run: (name) ->
         withActiveTab (tab) =>
-          existingWin = getDefinition name
-          if existingWin?
-            tabs.move tab.id, windowId: existingWin.id, index: -1, =>
-              @finish()
-          else
-            withNewWindow name, (win) =>
+          whenDefinition name,
+            isUndefined: =>
+              withNewWindow name, (win) =>
+                tabs.move tab.id, windowId: win.id, index: -1, =>
+                  tabs.remove win.tabs[win.tabs.length - 1].id, =>
+                    @finish()
+            isUnused: =>
+              withNewWindow name, (win) =>
+                tabs.move tab.id, windowId: win.id, index: -1, =>
+                  tabs.remove win.tabs[win.tabs.length - 1].id, =>
+                    @finish()
+            isInUse: (def, win) =>
               tabs.move tab.id, windowId: win.id, index: -1, =>
-                tabs.remove win.tabs[win.tabs.length - 1].id, =>
-                  @finish()
-#    _old_open:
-#      desc: 'Open a URL or search in a different window'
-#      type: 'Moving tabs'
-#      examples: 'ts open work google.com': "Opens the URL 'http://google.com' in the window 'work'."
-#      help: (name, url) ->
-#        if not (name? and url?)
-#          @finish 'Enter a window name followed by a URL to open the URL there.'
-#        else
-#          win = getDefinition name
-#          @finish "Press enter to open this URL in %swindow %w.", (if win then '' else 'new '), name
-#      run: (name, url) ->
-#        return @finish('Enter a window name followed by a URL.') if !name or !url
-#
-#        openTab: (win) =>
-#          url = 'http://' + url if !/^http:\/\//.test(url)
-#          tabs.create windowId: win.id, url: url, =>
-#            @finish()
-#
-#        withWindowNamed name, (existingWin) =>
-#          if existingWin?
-#            openTab existingWin
-#          else
-#            withNewWindow name, (win) =>
-#              openTab win
+                @finish()
+    move:
+      desc: 'Move the current tab to the window named in the argument, creating the window if necessary; focus that window.'
+      type: 'Moving tabs'
+      examples: 'ts move research': "Send the current tab to the window named 'research', first creating it if necessary; focus 'research'."
+      help: (name) ->
+        if not name?
+          @finish 'Enter a window name to send this tab there.'
+        else
+          def = getDefinition name
+          @finish "Press enter to send this tab to %swindow %w.", (if def? then '' else 'new '), name
+      run: (name) ->
+        withActiveTab (tab) =>
+          whenDefinition name,
+            isUndefined: =>
+              withNewWindow name, (win) =>
+                tabs.move tab.id, windowId: win.id, index: -1, =>
+                  tabs.remove win.tabs[win.tabs.length - 1].id, =>
+                    focus win
+                    @finish()
+            isUnused: =>
+              withNewWindow name, (win) =>
+                tabs.move tab.id, windowId: win.id, index: -1, =>
+                  tabs.remove win.tabs[win.tabs.length - 1].id, =>
+                    focus win
+                    @finish()
+            isInUse: (def, win) =>
+              tabs.move tab.id, windowId: win.id, index: -1, =>
+                focus win.id
+                @finish()
     extract:
       desc: 'Extract tabs matching the pattern arguments into a new window named with that pattern'
       type: 'Moving tabs'
@@ -899,17 +933,22 @@ class TabShepherd
                   tabs.remove win.tabs[win.tabs.length - 1].id, =>
                     @finish()
     sort:
-      desc: 'Sort all tabs into windows by assigned patterns'
+      desc: 'Sort all tabs into windows by assigned patterns.'
       type: 'Moving tabs'
-      examples: 'ts sort': "Move all tabs that match a defined pattern to that pattern's window. Effectively, perform \"ts bring\" for each window."
+      examples: 'ts sort': "Check all tabs against the patterns for each open window definition. Move each matching tab to the window it matched."
       help: ->
-        @finish 'Press enter to sort all windows according to their assigned patterns.'
+        @finish 'Press enter to sort all tabs according to their assigned patterns.'
       run: ->
-        for own name, def of definitions when def.patterns?
-          withWindowNamed name, (win) =>
-            withTabsMatching def.patterns, (tabz) =>
-              tabs.move tabz, windowId: win.id, index: -1, =>
-                @finish()
+        tabs.query pinned: false, (tabz) =>
+          changed = {}
+          for tab in tabz
+            withEachDefinition
+              where: (def) => def.patterns? and matchesAny tab, def.patterns
+              run: (def, win) =>
+                tabs.move tab.id, windowId: win.id, =>
+              reduce: (res) => res?.length or 0
+              then: (num) => changed[def.name] = (changed[def.name] or 0) + num
+          @finish ("Moved #{num} tabs to window #{name}" for own name, num of changed).join("\n")
     merge:
       desc: 'Merge all tabs and patterns from another window into this window.'
       type: 'Moving tabs'
