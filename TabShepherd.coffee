@@ -5,6 +5,7 @@ class TabShepherd
   tabs = null
   runtime = null
   definitions = null
+  currentWindowOverride = null
   alert = null
   lastCommand = null
 
@@ -16,7 +17,8 @@ class TabShepherd
     runtime = chrome.runtime
     alert = _alert
 
-    storage.get 'windowDefs', (data) =>
+    storage.get ['windowDefs', 'lastCommand'], (data) =>
+      console.log "storage got lastCommand #{data['lastCommand']} and defs #{data['windowDefs']}"
       definitions = data['windowDefs'] or {}
 
     omnibox.onInputChanged.addListener inputChanged
@@ -27,14 +29,15 @@ class TabShepherd
       suggest [ content: ' ', description: res ] if res
     c.help()
 
-  inputEntered = (text) =>
+  inputEntered = (text, output) =>
     console.log "Entered command: #{text}"
-    output = if getCommandName(text) != 'help'
-      (res) => alert res if res
-    else
-      (url) =>
-        withCurrentWindow (win) =>
-          tabs.create windowId: win.id, url: url, =>
+    if !output?
+      output = if getCommandName(text) != 'help'
+        (res) => alert res if res
+      else
+        (url) =>
+          withCurrentWindow (win) =>
+            tabs.create windowId: win.id, url: url, =>
     lastCommand = text if text != '.'
     new Command(text, output).run()
 
@@ -57,6 +60,8 @@ class TabShepherd
     text = text.trim()
     return [] if !/^\S+\s+\S+/.test(text)
     text.replace(/^\S+\s+/, '').split /\s+/
+
+  runCommand: (cmd, output) -> inputEntered cmd, output
 
   makeText: -> makeText (a for a in arguments)...
   makeText = ->
@@ -135,12 +140,17 @@ class TabShepherd
     withNewWindow name, (win) ->
       def = getDefinition(name)
       if not def?
+        console.log "Didn't find def #{name}, creating."
         def = definitions[name] = name: name
       def.id = win.id
-      storeDefinitions()
+#      console.dir definitions
+#      storeDefinitions()
+      new Command('bring', null, win).run()
 
   deleteDefinition: (name) -> deleteDefinition name
-  deleteDefinition = (name) -> delete definitions[name]
+  deleteDefinition = (name) -> 
+    delete definitions[name]
+    storeDefinitions()
 
   getDefinition: (name) -> getDefinition name
   getDefinition = (nameOrWin) ->
@@ -152,17 +162,22 @@ class TabShepherd
 
   storeDefinitions: (cb) -> storeDefinitions(cb)
   storeDefinitions = (cb) ->
+    console.log "aaa"
+    currentWindowOverride = null
     tabs.query index: 0, (tabz) ->
       for own name, def of definitions
         for tab in tabz when tab.windowId == def.id
           def.firstUrl = tab.url
-      storage.set windowDefs: definitions, ->
+      console.log "storage is setting lastCommand #{lastCommand} and defs #{definitions}"
+      stored = windowDefs: definitions, lastCommand: lastCommand
+      storage.set stored, ->
 #        console.dir definitions
         alert runtime.lastError if runtime.lastError
         cb() if cb?
 
   loadDefinitions = (callback) ->
-    storage.get 'windowDefs', (data) ->
+    storage.get ['windowDefs', 'lastCommand'], (data) ->
+      lastCommand = data['lastCommand']
       definitions = data['windowDefs'] or {}
       withEachDefinition
         where: (def, win) -> !win? && def.firstUrl?
@@ -264,18 +279,19 @@ class TabShepherd
       grouped = {}
       for tab in results
         id = tab.windowId
-        grouped[id] = [] if !grouped[id]
-        grouped[id].tabs = (grouped[id].tabs ? 0) + 1
-        grouped[id].name = getName(id) ? "(unnamed)"
-        grouped[id].id = id
+        grouped[id] = {} if !grouped[id]?
+        win = grouped[id]
+        win.tabs = (win.tabs ? 0) + 1
+        win.name = getName(id) ? "(unnamed)"
+        win.def = getDefinition win.name
+        win.id = id
       cb grouped
 
   withInactiveDefinitions: (cb) -> withInactiveDefinitions cb
   withInactiveDefinitions = (cb) ->
     withEachDefinition
       where: (def, win) -> not win?
-      run: (def) -> def.name
-      reduce: (names) -> names
+      reduce: (def) -> def
       then: cb
 
   matchesAny = (tab, patterns) =>
@@ -341,7 +357,7 @@ class TabShepherd
 
   withEachDefinition = (args) ->
     condition = args.where or -> true
-    action = args.run
+    action = args.run or (def, win) -> def
     finish = args.then
     reduce = args.reduce or (msgs) -> msgs.join(',')
     otherwise = args.otherwise
@@ -373,8 +389,11 @@ class TabShepherd
 
   withCurrentWindow: (callback) -> withCurrentWindow callback
   withCurrentWindow = (callback) ->
-    windows.getCurrent {}, (win) ->
-      callback win
+    if currentWindowOverride?
+      callback currentWindowOverride
+    else
+      windows.getCurrent {}, (win) ->
+        callback win
 
   withWindowNamed = (name, callback) ->
     windows.getAll {}, (wins) ->
@@ -423,7 +442,8 @@ class TabShepherd
     output = null
     cmd = null
 
-    constructor: (text, _output) ->
+    constructor: (text, _output, onWindow) ->
+      currentWindowOverride = onWindow if onWindow?
       poss = getPossibleCommands text
       if poss.length == 1
         @name = poss[0]
@@ -446,16 +466,19 @@ class TabShepherd
         f.apply @, @args
 
     finish: ->
+      console.log "Calling finish"
+      currentWindowOverride = null
       args = (a for a in arguments)
       status = makeText args...
-      if status?
+      if status? and output?
         if @name == 'help'
           output status
         else
           output "#{@name}: #{status}"
+      console.log "saveData? #{saveData}"
       close() if saveData
 
-    run: ->
+    run: (cb) -> 
       saveData = true
       @exec cmd.run
 
@@ -493,6 +516,7 @@ class TabShepherd
           @finish "This window's ID is %s and its name is %w", win.id, getName(win)
       run: ->
         withCurrentWindow (win) =>
+          console.log "Is this on?"
           @finish "This window's ID is %s and its name is %w", win.id, getName(win)
     name:
       desc: 'Change the name of the current window definition'

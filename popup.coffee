@@ -9,12 +9,17 @@ popup.controller 'PopupController', ($scope) ->
       if $scope.name
         $scope.def = ts.getDefinition $scope.name
         $scope.def.patterns = [] if $scope.def? and !$scope.def.patterns?
-        #console.dir $scope.def.patterns if $scope.def?.patterns?
       ts.countWindowsAndTabs (info) ->
         $scope.winInfo = info
         ts.withInactiveDefinitions (defs) ->
           $scope.inactiveDefs = defs
           $scope.$digest()
+
+  $scope.runCommand = ->
+    output = (msg) -> 
+      $scope.output = msg
+      $scope.$digest()
+    ts.runCommand $scope.command, output if $scope.command
 
   $scope.setName = ->
     ts.withCurrentWindow (win) ->
@@ -28,7 +33,7 @@ popup.controller 'PopupController', ($scope) ->
       ts.assignPattern win, $scope.newPattern
       $scope.newPattern = ''
       ts.storeDefinitions()
-      $scope.$digest()
+      $scope.init()
 
   $scope.goToWindow = (id) ->
     ts.withWindow id - 0, (win) ->
@@ -38,10 +43,12 @@ popup.controller 'PopupController', ($scope) ->
   $scope.activateDef = (name) ->
     console.log 'Activate ' + name
     ts.activateDefinition name
+    $scope.init()
 
   $scope.removeDef = (name) ->
     console.log 'Remove ' + name
     ts.deleteDefinition name
+    $scope.init()
 
   $scope.init()
 

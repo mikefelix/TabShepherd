@@ -4,7 +4,6 @@ _ = require("./underscore-min.js")
 global.extend = (hash1, hash2) ->
   for key of hash2
     hash1[key] = hash2[key]
-  hash1
   extend global, require "./chromeStubs.js"
 
 {TabShepherd} = require "./TabShepherd.js"
@@ -91,7 +90,7 @@ reset = (testName) ->
     storage: local:
       get: (name, cb) ->
         res = {}
-        res[name] = defs if name == 'windowDefs'
+        res['windowDefs'] = defs 
         cb res
       set: (newDefs, cb) ->
         defs = newDefs['windowDefs']

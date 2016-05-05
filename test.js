@@ -12,7 +12,6 @@
     for (key in hash2) {
       hash1[key] = hash2[key];
     }
-    hash1;
     return extend(global, require("./chromeStubs.js"));
   };
 
@@ -147,9 +146,7 @@
           get: function(name, cb) {
             var res;
             res = {};
-            if (name === 'windowDefs') {
-              res[name] = defs;
-            }
+            res['windowDefs'] = defs;
             return cb(res);
           },
           set: function(newDefs, cb) {

@@ -5,7 +5,7 @@
     slice = [].slice;
 
   TabShepherd = (function() {
-    var Command, activateDefinition, alert, assignPattern, commands, containsPattern, countWindowsAndTabs, definitions, deleteDefinition, focus, getArgs, getCommand, getCommandName, getDefForPattern, getDefinition, getId, getName, getPossibleCommands, inputChanged, inputEntered, isRegex, lastCommand, listPatterns, loadDefinitions, makeText, matchesAny, omnibox, plur, runtime, setName, showExamples, storage, storeDefinitions, summarizeCommands, tabs, unassignPattern, whenDefinition, windowMatching, windows, withActiveTab, withCurrentWindow, withEachDefinition, withEachWindow, withExistingWindow, withHighlightedTab, withInactiveDefinitions, withNewWindow, withTabsMatching, withWindow, withWindowForPattern, withWindowNamed;
+    var Command, activateDefinition, alert, assignPattern, commands, containsPattern, countWindowsAndTabs, currentWindowOverride, definitions, deleteDefinition, focus, getArgs, getCommand, getCommandName, getDefForPattern, getDefinition, getId, getName, getPossibleCommands, inputChanged, inputEntered, isRegex, lastCommand, listPatterns, loadDefinitions, makeText, matchesAny, omnibox, plur, runtime, setName, showExamples, storage, storeDefinitions, summarizeCommands, tabs, unassignPattern, whenDefinition, windowMatching, windows, withActiveTab, withCurrentWindow, withEachDefinition, withEachWindow, withExistingWindow, withHighlightedTab, withInactiveDefinitions, withNewWindow, withTabsMatching, withWindow, withWindowForPattern, withWindowNamed;
 
     storage = null;
 
@@ -19,6 +19,8 @@
 
     definitions = null;
 
+    currentWindowOverride = null;
+
     alert = null;
 
     lastCommand = null;
@@ -30,8 +32,9 @@
       tabs = chrome.tabs;
       runtime = chrome.runtime;
       alert = _alert;
-      storage.get('windowDefs', (function(_this) {
+      storage.get(['windowDefs', 'lastCommand'], (function(_this) {
         return function(data) {
+          console.log("storage got lastCommand " + data['lastCommand'] + " and defs " + data['windowDefs']);
           return definitions = data['windowDefs'] || {};
         };
       })(this));
@@ -54,21 +57,22 @@
       return c.help();
     };
 
-    inputEntered = function(text) {
-      var output;
+    inputEntered = function(text, output) {
       console.log("Entered command: " + text);
-      output = getCommandName(text) !== 'help' ? function(res) {
-        if (res) {
-          return alert(res);
-        }
-      } : function(url) {
-        return withCurrentWindow(function(win) {
-          return tabs.create({
-            windowId: win.id,
-            url: url
-          }, function() {});
-        });
-      };
+      if (output == null) {
+        output = getCommandName(text) !== 'help' ? function(res) {
+          if (res) {
+            return alert(res);
+          }
+        } : function(url) {
+          return withCurrentWindow(function(win) {
+            return tabs.create({
+              windowId: win.id,
+              url: url
+            }, function() {});
+          });
+        };
+      }
       if (text !== '.') {
         lastCommand = text;
       }
@@ -115,6 +119,10 @@
         return [];
       }
       return text.replace(/^\S+\s+/, '').split(/\s+/);
+    };
+
+    TabShepherd.prototype.runCommand = function(cmd, output) {
+      return inputEntered(cmd, output);
     };
 
     TabShepherd.prototype.makeText = function() {
@@ -264,12 +272,13 @@
         var def;
         def = getDefinition(name);
         if (def == null) {
+          console.log("Didn't find def " + name + ", creating.");
           def = definitions[name] = {
             name: name
           };
         }
         def.id = win.id;
-        return storeDefinitions();
+        return new Command('bring', null, win).run();
       });
     };
 
@@ -278,7 +287,8 @@
     };
 
     deleteDefinition = function(name) {
-      return delete definitions[name];
+      delete definitions[name];
+      return storeDefinitions();
     };
 
     TabShepherd.prototype.getDefinition = function(name) {
@@ -305,10 +315,12 @@
     };
 
     storeDefinitions = function(cb) {
+      console.log("aaa");
+      currentWindowOverride = null;
       return tabs.query({
         index: 0
       }, function(tabz) {
-        var def, j, len, name, tab;
+        var def, j, len, name, stored, tab;
         for (name in definitions) {
           if (!hasProp.call(definitions, name)) continue;
           def = definitions[name];
@@ -319,9 +331,12 @@
             }
           }
         }
-        return storage.set({
-          windowDefs: definitions
-        }, function() {
+        console.log("storage is setting lastCommand " + lastCommand + " and defs " + definitions);
+        stored = {
+          windowDefs: definitions,
+          lastCommand: lastCommand
+        };
+        return storage.set(stored, function() {
           if (runtime.lastError) {
             alert(runtime.lastError);
           }
@@ -333,7 +348,8 @@
     };
 
     loadDefinitions = function(callback) {
-      return storage.get('windowDefs', function(data) {
+      return storage.get(['windowDefs', 'lastCommand'], function(data) {
+        lastCommand = data['lastCommand'];
         definitions = data['windowDefs'] || {};
         withEachDefinition({
           where: function(def, win) {
@@ -531,17 +547,19 @@
         windowType: 'normal'
       }, (function(_this) {
         return function(results) {
-          var grouped, id, j, len, ref, ref1, tab;
+          var grouped, id, j, len, ref, ref1, tab, win;
           grouped = {};
           for (j = 0, len = results.length; j < len; j++) {
             tab = results[j];
             id = tab.windowId;
-            if (!grouped[id]) {
-              grouped[id] = [];
+            if (grouped[id] == null) {
+              grouped[id] = {};
             }
-            grouped[id].tabs = ((ref = grouped[id].tabs) != null ? ref : 0) + 1;
-            grouped[id].name = (ref1 = getName(id)) != null ? ref1 : "(unnamed)";
-            grouped[id].id = id;
+            win = grouped[id];
+            win.tabs = ((ref = win.tabs) != null ? ref : 0) + 1;
+            win.name = (ref1 = getName(id)) != null ? ref1 : "(unnamed)";
+            win.def = getDefinition(win.name);
+            win.id = id;
           }
           return cb(grouped);
         };
@@ -557,11 +575,8 @@
         where: function(def, win) {
           return win == null;
         },
-        run: function(def) {
-          return def.name;
-        },
-        reduce: function(names) {
-          return names;
+        reduce: function(def) {
+          return def;
         },
         then: cb
       });
@@ -720,7 +735,9 @@
       condition = args.where || function() {
         return true;
       };
-      action = args.run;
+      action = args.run || function(def, win) {
+        return def;
+      };
       finish = args.then;
       reduce = args.reduce || function(msgs) {
         return msgs.join(',');
@@ -787,9 +804,13 @@
     };
 
     withCurrentWindow = function(callback) {
-      return windows.getCurrent({}, function(win) {
-        return callback(win);
-      });
+      if (currentWindowOverride != null) {
+        return callback(currentWindowOverride);
+      } else {
+        return windows.getCurrent({}, function(win) {
+          return callback(win);
+        });
+      }
     };
 
     withWindowNamed = function(name, callback) {
@@ -860,8 +881,11 @@
 
       cmd = null;
 
-      function Command(text, _output) {
+      function Command(text, _output, onWindow) {
         var poss;
+        if (onWindow != null) {
+          currentWindowOverride = onWindow;
+        }
         poss = getPossibleCommands(text);
         if (poss.length === 1) {
           this.name = poss[0];
@@ -888,6 +912,8 @@
 
       Command.prototype.finish = function() {
         var a, args, status;
+        console.log("Calling finish");
+        currentWindowOverride = null;
         args = (function() {
           var j, len, results1;
           results1 = [];
@@ -898,19 +924,20 @@
           return results1;
         }).apply(this, arguments);
         status = makeText.apply(null, args);
-        if (status != null) {
+        if ((status != null) && (output != null)) {
           if (this.name === 'help') {
             output(status);
           } else {
             output(this.name + ": " + status);
           }
         }
+        console.log("saveData? " + saveData);
         if (saveData) {
           return close();
         }
       };
 
-      Command.prototype.run = function() {
+      Command.prototype.run = function(cb) {
         saveData = true;
         return this.exec(cmd.run);
       };
@@ -999,6 +1026,7 @@
         run: function() {
           return withCurrentWindow((function(_this) {
             return function(win) {
+              console.log("Is this on?");
               return _this.finish("This window's ID is %s and its name is %w", win.id, getName(win));
             };
           })(this));
@@ -1015,7 +1043,11 @@
             return function(win) {
               if (getName(win) != null) {
                 if (newName != null) {
-                  return _this.finish("Press enter to change window name from %w to %w.", getName(win), newName);
+                  if (newName === getName(win)) {
+                    return _this.finish("This window is already called %w.", newName);
+                  } else {
+                    return _this.finish("Press enter to change window name from %w to %w.", getName(win), newName);
+                  }
                 } else {
                   return _this.finish("Enter a new name for this window (currently named %w).", getName(win));
                 }
@@ -1297,6 +1329,40 @@
             })(this));
           }
         }
+      },
+      last: {
+        desc: 'Focus the previously-focused window',
+        type: 'Changing focus',
+        examples: {
+          'ts last': 'Focus the previously-focused window.'
+        },
+        help: function() {
+          return tabs.query({
+            active: true,
+            lastFocusedWindow: true
+          }, (function(_this) {
+            return function(tabz) {
+              var tab;
+              if (tabz != null ? tabz.length : void 0) {
+                tab = tabz[0];
+                return withEachDefinition({
+                  where: function(def, win) {
+                    return win.id === tab.windowId;
+                  },
+                  run: function(def) {
+                    return _this.finish("Press enter to focus the previously focused window %w.", def.name);
+                  },
+                  otherwise: function() {
+                    return _this.finish("Press enter to focus the previously focused unnamed window.");
+                  }
+                });
+              } else {
+                return _this.finish("Press enter to focus the previously focused window.");
+              }
+            };
+          })(this));
+        },
+        run: function() {}
       },
       go: {
         desc: 'Perform either "find", "open" or "new", depending on the arguments and number of matches',
@@ -1774,36 +1840,52 @@
         }
       },
       sort: {
-        desc: 'Sort all tabs into windows by assigned patterns',
+        desc: 'Sort all tabs into windows by assigned patterns.',
         type: 'Moving tabs',
         examples: {
-          'ts sort': "Move all tabs that match a defined pattern to that pattern's window. Effectively, perform \"ts bring\" for each window."
+          'ts sort': "Check all tabs against the patterns for each open window definition. Move each matching tab to the window it matched."
         },
         help: function() {
-          return this.finish('Press enter to sort all windows according to their assigned patterns.');
+          return this.finish('Press enter to sort all tabs according to their assigned patterns.');
         },
         run: function() {
-          var def, name, results1;
-          results1 = [];
-          for (name in definitions) {
-            if (!hasProp.call(definitions, name)) continue;
-            def = definitions[name];
-            if (def.patterns != null) {
-              results1.push(withWindowNamed(name, (function(_this) {
-                return function(win) {
-                  return withTabsMatching(def.patterns, function(tabz) {
-                    return tabs.move(tabz, {
-                      windowId: win.id,
-                      index: -1
-                    }, function() {
-                      return _this.finish();
-                    });
-                  });
-                };
-              })(this)));
-            }
-          }
-          return results1;
+          return tabs.query({
+            pinned: false
+          }, (function(_this) {
+            return function(tabz) {
+              var changed, j, len, name, num, tab;
+              changed = {};
+              for (j = 0, len = tabz.length; j < len; j++) {
+                tab = tabz[j];
+                withEachDefinition({
+                  where: function(def) {
+                    return (def.patterns != null) && matchesAny(tab, def.patterns);
+                  },
+                  run: function(def, win) {
+                    return tabs.move(tab.id, {
+                      windowId: win.id
+                    }, function() {});
+                  },
+                  reduce: function(res) {
+                    return (res != null ? res.length : void 0) || 0;
+                  },
+                  then: function(num) {
+                    return changed[def.name] = (changed[def.name] || 0) + num;
+                  }
+                });
+              }
+              return _this.finish(((function() {
+                var results1;
+                results1 = [];
+                for (name in changed) {
+                  if (!hasProp.call(changed, name)) continue;
+                  num = changed[name];
+                  results1.push("Moved " + num + " tabs to window " + name);
+                }
+                return results1;
+              })()).join("\n"));
+            };
+          })(this));
         }
       },
       merge: {

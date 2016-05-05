@@ -15,6 +15,10 @@
             margin-top: 10px;
             font-size: 1.1em;
         }
+        .tsTitle {
+            font-size: 1.5em;
+            font-weight: bold;
+        }
         a {
             cursor: pointer;
             text-decoration: underline;
@@ -33,6 +37,13 @@
   <body ng-app="TabShepPopup">
     <div id="tsTitle">TabShepherd</div>
     <div id="status" ng-controller="PopupController">
+        <div>
+            <div>
+                <input type="text" id="command" ng-model="command"/>
+                <input type="button" id="runCommand" value="Run" ng-click="runCommand()" ng-disabled="!command"/>
+            </div>
+            <div>{{output}}</div>
+        </div>
         <div class="heading" id="thisWindow">
             This window
         </div>
@@ -57,12 +68,15 @@
         </div>
         <div ng-repeat="(id, win) in winInfo">
             <a ng-class="{current: currentWindow.id == id}" ng-click="goToWindow(id)" style="cursor:pointer">{{win.name}}</a>: {{win.tabs}} tabs
+            <ul ng-show="win.def && win.def.patterns && win.def.patterns.length > 0">
+                <li ng-repeat="pat in win.def.patterns">{{pat}}</li>
+            </ul>
         </div>
         <div class="heading">
             Inactive definitions:
         </div>
-        <div ng-repeat="def in inactiveDefs">
-            {{def}} [<a ng-click="activateDef(def)">open</a>] [<a ng-click="removeDef(def)">delete</a>]
+        <div ng-repeat="def in inactiveDefs track by $index">
+            {{def.name}} [<a ng-click="activateDef(def.name)">open</a>] [<a ng-click="removeDef(def.name)">delete</a>]
             <ul ng-show="def.patterns && def.patterns.length > 0">
                 <li ng-repeat="pat in def.patterns">{{pat}}</li>
             </ul>

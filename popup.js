@@ -27,6 +27,16 @@
         });
       });
     };
+    $scope.runCommand = function() {
+      var output;
+      output = function(msg) {
+        $scope.output = msg;
+        return $scope.$digest();
+      };
+      if ($scope.command) {
+        return ts.runCommand($scope.command, output);
+      }
+    };
     $scope.setName = function() {
       return ts.withCurrentWindow(function(win) {
         ts.setName(win, $scope.name);
@@ -40,7 +50,7 @@
         ts.assignPattern(win, $scope.newPattern);
         $scope.newPattern = '';
         ts.storeDefinitions();
-        return $scope.$digest();
+        return $scope.init();
       });
     };
     $scope.goToWindow = function(id) {
@@ -51,11 +61,13 @@
     };
     $scope.activateDef = function(name) {
       console.log('Activate ' + name);
-      return ts.activateDefinition(name);
+      ts.activateDefinition(name);
+      return $scope.init();
     };
     $scope.removeDef = function(name) {
       console.log('Remove ' + name);
-      return ts.deleteDefinition(name);
+      ts.deleteDefinition(name);
+      return $scope.init();
     };
     return $scope.init();
   });
