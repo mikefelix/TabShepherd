@@ -11,6 +11,8 @@ popup.controller 'PopupController', ($scope) ->
         $scope.def.patterns = [] if $scope.def? and !$scope.def.patterns?
       ts.countWindowsAndTabs (info) ->
         $scope.winInfo = info
+        vals = (v for k, v of info)
+        $scope.totalTabs = vals.reduce(((mem, w) -> mem + w.tabs), 0)
         ts.withInactiveDefinitions (defs) ->
           $scope.inactiveDefs = defs
           $scope.$digest()
@@ -41,6 +43,11 @@ popup.controller 'PopupController', ($scope) ->
       ts.focus win
 
   $scope.activateDef = (name) ->
+    console.log 'Activate ' + name
+    ts.activateDefinition name
+    $scope.init()
+
+  $scope.openDef = (name) ->
     console.log 'Activate ' + name
     ts.activateDefinition name
     $scope.init()

@@ -35,8 +35,9 @@
     <script src="angular.min.js"></script>
   </head>
   <body ng-app="TabShepPopup">
-    <div id="tsTitle">TabShepherd</div>
+      <div id="tsTitle">TabShepherd</div>
     <div id="status" ng-controller="PopupController">
+        <div>Open tabs: {{totalTabs}}</div>
         <div>
             <div>
                 <input type="text" id="command" ng-model="command"/>
@@ -76,7 +77,10 @@
             Inactive definitions:
         </div>
         <div ng-repeat="def in inactiveDefs track by $index">
-            {{def.name}} [<a ng-click="activateDef(def.name)">open</a>] [<a ng-click="removeDef(def.name)">delete</a>]
+            {{def.name}}
+            [<a ng-click="assignDef(def.name)" title="Assign to current window">assign</a>]
+            [<a ng-click="openDef(def.name)" title="Open in new window">open</a>]
+            [<a ng-click="removeDef(def.name)" title="Remove this definition">delete</a>]
             <ul ng-show="def.patterns && def.patterns.length > 0">
                 <li ng-repeat="pat in def.patterns">{{pat}}</li>
             </ul>

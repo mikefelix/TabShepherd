@@ -29,15 +29,15 @@ class TabShepherd
       suggest [ content: ' ', description: res ] if res
     c.help()
 
-  inputEntered = (text, output) =>
+  inputEntered = (text, disp) =>
     console.log "Entered command: #{text}"
-    if !output?
-      output = if getCommandName(text) != 'help'
-        (res) => alert res if res
-      else
-        (url) =>
-          withCurrentWindow (win) =>
-            tabs.create windowId: win.id, url: url, =>
+#    if !output? or typeof output != 'function'
+    output = if getCommandName(text) != 'help'
+      (res) => alert res if res
+    else
+      (url) =>
+        withCurrentWindow (win) =>
+          tabs.create windowId: win.id, url: url, =>
     lastCommand = text if text != '.'
     new Command(text, output).run()
 
@@ -162,7 +162,6 @@ class TabShepherd
 
   storeDefinitions: (cb) -> storeDefinitions(cb)
   storeDefinitions = (cb) ->
-    console.log "aaa"
     currentWindowOverride = null
     tabs.query index: 0, (tabz) ->
       for own name, def of definitions
@@ -406,25 +405,26 @@ class TabShepherd
       callback tabs[0] if tabs.length > 0
 
   whenDefinition = (name, cases) ->
+    process = (def, win) -> 
+      if not def?
+        if cases.isUndefined?
+          cases.isUndefined()
+        else
+          throw "Definition #{def} is undefined, but isUndefined case not given."
+      else if def? and not win?
+        if cases.isUnused?
+          cases.isUnused(def)
+        else
+          throw "Definition #{def} is defined and unused, but isUnused case is not given."
+      else
+        if cases.isInUse?
+          cases.isInUse(def, win)
+        else
+          throw "Definition #{def} is in use, but isInUse case is not given."
     withEachDefinition
       where: (def) -> def.name == name
-      run: (def, win) ->
-        if not def?
-          if cases.isUndefined?
-            cases.isUndefined()
-          else
-            throw "Definition #{def} is undefined, but isUndefined case not given."
-        else if def? and not win?
-          if cases.isUnused?
-            cases.isUnused(def)
-          else
-            throw "Definition #{def} is defined and unused, but isUnused case is not given."
-        else
-          if cases.isInUse?
-            cases.isInUse(def, win)
-          else
-            throw "Definition #{def} is in use, but isInUse case is not given."
-#      otherwise: -> throw "Unexpected condition."
+      run: process
+      otherwise: process
 
   plur = (word, num) ->
     text = if num == 1
